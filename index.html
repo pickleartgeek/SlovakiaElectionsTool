@@ -8,8 +8,34 @@
 <script src="https://cdn.tailwindcss.com"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/shpjs@latest/dist/shp.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+<script>
+  (function() {
+    const urls = [
+      "https://cdnjs.cloudflare.com/ajax/libs/shpjs/4.0.4/shp.min.js",
+      "https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js",
+      "https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"
+    ];
+    let index = 0;
+    function tryLoadNext() {
+      if (index >= urls.length) {
+        console.error("HUD Error: All Shapefile engines were blocked by browser tracking prevention.");
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = urls[index];
+      script.onload = () => console.log("HUD Success: Shapefile engine loaded via " + urls[index]);
+      script.onerror = () => {
+        console.warn("HUD Pivot: Blocked or failed to fetch " + urls[index] + ". Trying next engine...");
+        index++;
+        tryLoadNext();
+      };
+      document.head.appendChild(script);
+    }
+    tryLoadNext();
+  })();
+</script>
 
 <style>
   body { background-color: #030712; color: #f3f4f6; font-family: ui-sans-serif, system-ui, sans-serif; }
@@ -17,13 +43,11 @@
   .cyber-ready { border-color: rgba(16, 185, 129, 0.4) !important; box-shadow: 0 0 10px rgba(16, 185, 129, 0.1); }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
   
-  /* Custom scrollbars for a clean tech look */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: rgba(31, 41, 55, 0.5); }
   ::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.3); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.5); }
 
-  /* Map/Cartogram hex nodes */
   .hex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; }
   .hex-node { aspect-ratio: 1; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; position: relative; transition: all 0.2s ease; cursor: pointer; border: 1px solid rgba(255,255,255,0.05); }
   .hex-node:hover { transform: scale(1.08); z-index: 10; box-shadow: 0 0 12px rgba(59,130,246,0.4); }
@@ -34,7 +58,6 @@
     50% { box-shadow: 0 0 14px rgba(59,130,246,0.6); border-color: rgba(59,130,246,0.6); }
   }
 
-  /* Table styling overrides */
   .muni-table-container { max-height: 440px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05); }
   table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; }
   th { background: #111827; position: sticky; top: 0; z-index: 20; padding: 10px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; border-bottom: 2px solid rgba(59, 130, 246, 0.2); }
@@ -183,9 +206,7 @@
 
       <div class="cyber-panel p-4 rounded-xl space-y-4">
         <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold border-b border-gray-800 pb-2">National Scoreboard Breakdown</h2>
-        
         <div id="national-progressbar" class="w-full h-4 bg-gray-950 rounded border border-gray-800 overflow-hidden flex"></div>
-        
         <div id="national-legend-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs font-mono"></div>
       </div>
 
@@ -251,7 +272,7 @@
 
 <script>
 /* =========================================================
-   1. GLOBAL STATE DATA ARRAYS & CONFIGURATION
+   GLOBAL STATE DATA ARRAYS & CONFIGURATION
 ========================================================= */
 let PARTIES = [];
 let MUNICIPALITIES = [];
@@ -268,7 +289,6 @@ const runtimeState = {
   engine: { running: false, tickersCounted: new Set(), queue: [], clock: null, speedMs: 10000, profile: 'rural-first', snapshots: {} }
 };
 
-// Generates uniquely distinct thematic hex color profiles for incoming party datasets
 function createUniqueColorProfile(idx, max) {
   const h = (idx * (360 / Math.max(max, 1))) % 360;
   return `hsl(${h}, 80%, 45%)`;
@@ -303,13 +323,9 @@ function computeShadedHex(hex, margin) {
   return `hsl(${hsl.h}, ${Math.min(100, hsl.s * (0.85 + scaling * 0.15))}%, ${light}%)`;
 }
 
-/* =========================================================
-   2. RE-INITIALIZE AND ALIGN SIMULATOR LOGISTICS
-========================================================= */
 function setupSimulatorPipeline() {
   if (MUNICIPALITIES.length === 0 || PARTIES.length === 0) return;
 
-  // Calculate distinct ecological turnout modes
   const tally = { rural: [0, 0], urban: [0, 0] };
   MUNICIPALITIES.forEach(m => {
     tally[m.type][0] += m.baseTurnout;
@@ -326,14 +342,12 @@ function setupSimulatorPipeline() {
   document.getElementById('out-turnout-rural').textContent = document.getElementById('val-turnout-rural').value + '%';
   document.getElementById('out-turnout-urban').textContent = document.getElementById('val-turnout-urban').value + '%';
 
-  // Build index trees for faster GIS aggregations
   for (let k in DISTRICT_CORRIDOR_INDEX) delete DISTRICT_CORRIDOR_INDEX[k];
   MUNICIPALITIES.forEach(m => {
     if (!DISTRICT_CORRIDOR_INDEX[m.okres]) DISTRICT_CORRIDOR_INDEX[m.okres] = [];
     DISTRICT_CORRIDOR_INDEX[m.okres].push(m);
   });
 
-  // Extract national weight baselines
   let totalCalculatedVotes = 0;
   const temporarySums = {}; PARTIES.forEach(p => temporarySums[p.id] = 0);
   MUNICIPALITIES.forEach(m => {
@@ -347,12 +361,10 @@ function setupSimulatorPipeline() {
     runtimeState.partyTargets[p.id] = CUMULATIVE_NATIONAL_BASE[p.id];
   });
 
-  // Activate controls
   document.getElementById('ctrl-start').disabled = false;
   document.getElementById('ctrl-shake').disabled = false;
   document.getElementById('ctrl-clear-swings').disabled = false;
 
-  // Build Filter dropdown
   const filterKrajNode = document.getElementById('grid-filter-kraj');
   filterKrajNode.innerHTML = '<option value="ALL">All Regions (Kraje)</option>';
   REGIONS.forEach(r => {
@@ -367,9 +379,6 @@ function setupSimulatorPipeline() {
   document.getElementById('hud-status').textContent = 'SYSTEM OPERATIONAL / READY';
 }
 
-/* =========================================================
-   3. SWING LOGICS & MATHEMATICAL ALLOCATION MATRIX
-========================================================= */
 function retrieveProportionalTargets() {
   const sum = PARTIES.reduce((acc, p) => acc + Math.max(0, runtimeState.partyTargets[p.id]), 0) || 1;
   const map = {};
@@ -431,9 +440,6 @@ function runDHondtAllocation(partyAggregateVotes, seatCount = 150, entryThreshol
   return seatsAwarded;
 }
 
-/* =========================================================
-   4. FILE INGESTION PIPELINE (DYNAMIC MAPPING)
-========================================================= */
 const CentralStorage = { matrixGeo: null, matrixVotes: null };
 
 const ElectoralExcelReader = {
@@ -474,6 +480,10 @@ const ElectoralExcelReader = {
 const StructuralGeoReader = {
   async processZip(fileObject) {
     const rawBuffer = await fileObject.arrayBuffer();
+    if (typeof shp === 'undefined') {
+      alert("Critical: Shapefile parsing engine library is missing or blocked by browser security sandbox.");
+      return [];
+    }
     const geoJSON = await shp(rawBuffer);
     const geometryFeatures = geoJSON?.features || geoJSON?.[0]?.features || [];
     return geometryFeatures.map(feat => ({
@@ -616,9 +626,6 @@ function generateSystemFallbackExcelOnly() {
   setupSimulatorPipeline();
 }
 
-/* =========================================================
-   5. HUD VISUALIZATION RENDERERS (ORIGINAL UI THEME)
-========================================================= */
 function checkMuniReporting(m) {
   if (!runtimeState.engine.running && runtimeState.engine.tickersCounted.size === 0) return true;
   return runtimeState.engine.tickersCounted.has(m.id);
@@ -844,7 +851,7 @@ function renderGranularTableRows() {
     return true;
   });
 
-  const trunkSubset = workingSet.slice(0, 150); // Performance boundary
+  const trunkSubset = workingSet.slice(0, 150);
   
   if (trunkSubset.length === 0) {
     rowsBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-600 italic">No operational records fit active tracking matrix.</td></tr>`;
@@ -916,9 +923,6 @@ function executeUniversalRender() {
   renderGranularTableRows();
 }
 
-/* =========================================================
-   6. REALTIME PROGRESSION SIMULATOR MATRIX ENGINE
-========================================================= */
 function formulateDynamicSequence() {
   const operationalScoring = MUNICIPALITIES.map(m => {
     let scalarValue = Math.random();
@@ -989,9 +993,6 @@ function executeSystemHardReset() {
   executeUniversalRender();
 }
 
-/* =========================================================
-   7. HUD CONTROLS EVENT WIRES
-========================================================= */
 function wireDashboardSystemEvents() {
   document.getElementById('val-turnout-rural').addEventListener('input', (e) => {
     runtimeState.turnout.rural = parseFloat(e.target.value) / 100;
@@ -1047,7 +1048,6 @@ document.getElementById("fileLoader").addEventListener("change", async (event) =
   }
 });
 
-// Structural entry init
 document.addEventListener('DOMContentLoaded', () => {
   wireDashboardSystemEvents();
 });
