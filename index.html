@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>SlovakiaElectionsTool</title>
+<title>SlovakiaElectionsTool — Live Data Integration</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 
@@ -14,19 +14,49 @@
 
 <style>
   body { background:#070a10; color:#e5e7eb; font-family: system-ui; }
-
-  .card {
-    background:#0b1220;
-    border:1px solid rgba(255,255,255,0.06);
-    border-radius:16px;
-  }
-
+  .card { background:#0b1220; border:1px solid rgba(255,255,255,0.06); border-radius:16px; }
   .mono { font-family: ui-monospace, monospace; }
+  
+  /* Map grid placeholder & styling */
+  #map { background: radial-gradient(#1f2937 1px, transparent 1px); background-size: 18px 18px; }
+  .kraj-box { border: 1px solid rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; background: #0f172a; cursor: pointer; transition: all 0.2s; }
+  .kraj-box:hover { border-color: rgba(255,255,255,0.2); }
+  .kraj-label { font-weight: bold; font-size: 11px; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; }
+  .hex-wrap { display: flex; flex-wrap: wrap; gap: 4px; }
+  .hex { width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; cursor: pointer; position: relative; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+  .hex.pending { animation: pulse 2s infinite; }
+  .hex.partial { border: 2px dashed #fbbf24; }
+  .hex-pct { font-size: 9px; opacity: 0.9; }
 
-  #map {
-    background: radial-gradient(#1f2937 1px, transparent 1px);
-    background-size: 18px 18px;
-  }
+  /* Utility classes */
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .legend-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .legend-name { flex-grow: 1; margin-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .legend-pct { font-family: monospace; font-weight: bold; }
+  
+  .bar-seg { height: 100%; transition: width 0.3s ease; }
+  
+  /* Table styling */
+  .muni-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+  table { width: 100%; text-align: left; border-collapse: collapse; }
+  th { background: #0f172a; position: sticky; top: 0; padding: 8px; font-size: 11px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid rgba(255,255,255,0.1); }
+  td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .row-pending { opacity: 0.5; }
+  .num { text-align: right; font-family: monospace; }
+  .muted { color: #64748b; }
+  .pill { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  .pill-urban { background: #1e3a8a; color: #93c5fd; }
+  .pill-rural { background: #064e3b; color: #6ee7b7; }
+
+  @keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+  .flash { background-color: rgba(59, 130, 246, 0.2) !important; transition: background 0.1s; }
+  .flash-box { border-color: #3b82f6 !important; }
+  
+  /* Party controls */
+  .party-row { margin-bottom: 8px; }
+  .party-row-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+  .party-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+  input[type="range"] { width: 100%; accent-color: #3b82f6; background: #1e293b; height: 6px; border-radius: 3px; outline: none; }
 </style>
 </head>
 
@@ -36,94 +66,303 @@
 
   <div class="card p-4 flex justify-between items-center">
     <div>
-      <h1 class="text-xl font-bold">VOĽBY.SIM</h1>
-      <p class="text-xs text-gray-400">Election simulation engine (GIS-ready)</p>
+      <h1 class="text-xl font-bold tracking-tight">VOĽBY.SIM <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded ml-2">LIVE DATA</span></h1>
+      <p class="text-xs text-gray-400">Plne funkčné spracovanie dát z SU SR (.xlsx) a GIS (.zip shapefile)</p>
     </div>
 
-    <input id="fileInput" type="file" multiple
-      class="text-xs bg-gray-900 p-2 rounded border border-gray-700"/>
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-gray-400">Nahrajte súbory spolu:</span>
+      <input id="fileInput" type="file" multiple
+        class="text-xs bg-gray-900 p-2 rounded border border-gray-700 text-gray-300 cursor-pointer focus:outline-none"/>
+    </div>
+  </div>
+
+  <div class="card p-3 flex justify-between items-center text-xs px-4 bg-slate-900/50">
+    <div class="flex items-center gap-4">
+      <div id="ticker-status" class="font-bold uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-300">AWAITING DATA</div>
+      <div id="ticker-counted" class="text-gray-400">—</div>
+      <div id="ticker-turnout" class="text-gray-400">—</div>
+    </div>
+    <div id="ticker-leader" class="flex items-center font-medium text-gray-300">—</div>
   </div>
 
   <div class="grid grid-cols-12 gap-4">
 
-    <div class="col-span-7 card p-4">
-      <h2 class="text-sm font-bold mb-2">Map</h2>
-      <div id="map" class="h-[500px] flex items-center justify-center text-gray-500 text-xs">
-        Awaiting shapefile / geojson import
+    <div class="col-span-12 lg:col-span-7 space-y-4">
+      
+      <div class="card p-4">
+        <h2 class="text-sm font-bold mb-3 flex justify-between items-center">
+          <span>Hexagonálny kartogram (Okresy / Kraje)</span>
+          <span class="text-xs font-normal text-gray-400">Kliknutím na kraj/okres filtrujete tabuľku</span>
+        </h2>
+        <div id="map" class="min-h-[480px] p-4 flex flex-col gap-4 items-center justify-center text-gray-500 text-xs rounded-xl">
+          Pre aktiváciu mapy a simulácie nahrajte volebný súbor Excel (.xlsx) a Shapefile (.zip) naraz alebo postupne.
+        </div>
       </div>
+
+      <div class="card p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Poradie sčítavania</label>
+          <select id="order-select" class="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-xs text-gray-200">
+            <option value="rural-first">Najprv vidiek (Rural-first)</option>
+            <option value="urban-first">Najprv mestá (Urban-first)</option>
+            <option value="random">Náhodné priebežné</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Rýchlosť simulácie: <span id="speed-out" class="font-mono text-blue-400">10s</span></label>
+          <input type="range" id="speed-slider" min="2" max="60" step="1" value="10">
+        </div>
+
+        <div class="flex gap-2 pt-4 md:pt-0">
+          <button id="btn-start" disabled class="flex-1 bg-blue-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed hover:bg-blue-500 text-white font-bold text-xs p-2.5 rounded-lg transition">
+            ▶ Spustiť sčítavanie
+          </button>
+          <button id="btn-reset" disabled class="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold text-xs px-3 rounded-lg transition">
+            ⟳ Reset
+          </button>
+        </div>
+      </div>
+
+      <div class="card p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-xs font-bold uppercase text-gray-400">Účasť na vidieku</span>
+            <span id="turnout-rural-out" class="font-mono text-xs font-bold text-emerald-400">—</span>
+          </div>
+          <input type="range" id="turnout-rural" min="10" max="95" step="1" value="50">
+        </div>
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-xs font-bold uppercase text-gray-400">Účasť v mestách</span>
+            <span id="turnout-urban-out" class="font-mono text-xs font-bold text-blue-400">—</span>
+          </div>
+          <input type="range" id="turnout-urban" min="10" max="95" step="1" value="65">
+        </div>
+      </div>
+
     </div>
 
-    <div class="col-span-5 space-y-4">
-
+    <div class="col-span-12 lg:col-span-5 space-y-4">
+      
       <div class="card p-4">
-        <h2 class="text-sm font-bold mb-2">Dataset</h2>
-        <div id="datasetInfo" class="text-xs text-gray-400">No data loaded</div>
+        <h2 class="text-sm font-bold mb-2">Stav importovaných dát</h2>
+        <div id="datasetInfo" class="text-xs text-gray-400 space-y-1">
+          <div class="flex justify-between"><span>Excel výsledky (.xlsx):</span> <span id="status-xlsx" class="text-red-400 font-bold">Nenahré</span></div>
+          <div class="flex justify-between"><span>Geometria / Obce (.zip):</span> <span id="status-geo" class="text-red-400 font-bold">Nenahré</span></div>
+          <div class="flex justify-between"><span>Počet spárovaných obcí:</span> <span id="status-matched" class="font-bold text-gray-300">0</span></div>
+        </div>
+      </div>
+
+      <div class="card p-4 space-y-3">
+        <h2 class="text-sm font-bold">Národné priebežné výsledky</h2>
+        
+        <div id="national-bar" class="w-full h-5 bg-gray-900 rounded-lg overflow-hidden flex border border-gray-800"></div>
+        
+        <div id="national-legend" class="grid grid-cols-2 gap-x-4 max-h-[140px] overflow-y-auto text-xs pr-1"></div>
+      </div>
+
+      <div class="card p-4 space-y-3">
+        <div class="flex justify-between items-center">
+          <h2 class="text-sm font-bold">Rozdelenie mandátov (D'Hondt, 5%)</h2>
+          <span id="seat-total" class="text-[11px] text-gray-400 font-mono">150 kresiel</span>
+        </div>
+        
+        <div class="flex flex-col md:flex-row gap-4 items-center">
+          <div id="hemicycle-host" class="w-[180px] h-[100px] flex items-center justify-center"></div>
+          <div id="seat-list" class="flex-1 w-full grid grid-cols-2 gap-x-2 text-xs max-h-[100px] overflow-y-auto"></div>
+        </div>
       </div>
 
       <div class="card p-4">
-        <h2 class="text-sm font-bold mb-2">Controls</h2>
-
-        <button id="runSim"
-          class="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs p-2 rounded">
-          Run simulation
-        </button>
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-sm font-bold">Modelovanie celonárodného swingu</h2>
+          <div class="flex gap-1">
+            <button id="btn-random" disabled class="text-[10px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/30 transition">🎲 Náhodný šok</button>
+            <button id="btn-reset-parties" disabled class="text-[10px] bg-gray-800 text-gray-300 px-2 py-1 rounded hover:bg-gray-700 transition">Reset</button>
+          </div>
+        </div>
+        <p class="text-[11px] text-gray-400 mb-3">Nastavením cieľa upravíte preferencie rovnomerne naprieč všetkými obcami.</p>
+        
+        <div id="party-controls" class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+          <div class="text-xs text-gray-500 italic text-center py-4">Ačakáva sa načítanie volebných strán...</div>
+        </div>
       </div>
 
     </div>
   </div>
 
-  <div class="card p-4">
-    <h2 class="text-sm font-bold mb-2">Municipal data</h2>
-    <div id="table" class="text-xs text-gray-400">No dataset</div>
+  <div class="card p-4 space-y-3" id="panel-table">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+      <div>
+        <h2 class="text-sm font-bold">Podrobná tabuľka obcí</h2>
+        <span id="table-count" class="text-xs text-gray-400">Zobrazených 0 záznamov</span>
+      </div>
+      
+      <div class="flex flex-wrap items-center gap-2 text-xs w-full md:w-auto">
+        <select id="filter-kraj" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200">
+          <option value="ALL">Všetky kraje</option>
+        </select>
+        
+        <select id="filter-type" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200">
+          <option value="ALL">Mestá aj vidiek</option>
+          <option value="urban">Len mestá</option>
+          <option value="rural">Len vidiek</option>
+        </select>
+
+        <input type="text" id="filter-q" placeholder="Hľadať obec..." class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full md:w-40" />
+
+        <button id="filter-clear" class="bg-gray-800 text-gray-300 hover:bg-gray-700 p-1.5 rounded transition">Vyčistiť</button>
+      </div>
+    </div>
+
+    <div class="muni-table-wrapper rounded-lg border border-gray-800">
+      <table>
+        <thead>
+          <tr>
+            <th>Názov obce</th>
+            <th>Okres</th>
+            <th>Typ</th>
+            <th class="num">Voliči spolu</th>
+            <th class="num">Odovzdané</th>
+            <th class="num">Účasť</th>
+            <th>Víťaz v obci</th>
+          </tr>
+        </thead>
+        <tbody id="muni-tbody" class="text-xs">
+          <tr>
+            <td colspan="7" class="text-center py-8 text-gray-500 italic">Dáta nie sú načítané. Použite vrchný upload pre vloženie dát.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
 </div>
 
 <script>
-/* ============================================================
-   VOĽBY.SIM — application logic
-   ============================================================ */
+/* =========================================================
+   1. GLOBAL ENGINE CONFIGS & STORES (Dynamic Sources)
+========================================================= */
+let PARTIES = [];
+let MUNICIPALITIES = [];
+let REGIONS = [];
 
-// ---------- derived baseline stats ----------
 const TYPE_AVG_TURNOUT = { rural: 0, urban: 0 };
-(function computeTypeAverages() {
-  const acc = { rural: [0, 0], urban: [0, 0] }; // [sum, count]
-  MUNICIPALITIES.forEach(m => { acc[m.type][0] += m.baseTurnout; acc[m.type][1] += 1; });
-  TYPE_AVG_TURNOUT.rural = acc.rural[0] / acc.rural[1];
-  TYPE_AVG_TURNOUT.urban = acc.urban[0] / acc.urban[1];
-})();
-
-const NATIONAL_BASELINE = {}; // party id -> weighted national baseline %
-// ---------- lookup indexes (PERFORMANCE) ----------
+const NATIONAL_BASELINE = {};
 const OKRES_INDEX = {};
 
-(function buildIndexes() {
+const state = {
+  turnout: { rural: 0.50, urban: 0.65 },
+  partyTargets: {}, 
+  filter: { kraj: 'ALL', okres: null, type: 'ALL', q: '' },
+  sim: { running: false, reported: new Set(), queue: [], timer: null, startedAt: 0, durationMs: 10000, order: 'rural-first', locked: {} },
+};
+
+// Generovanie stabilných farieb pre politické subjekty
+function generatePartyColor(index, total) {
+  const hue = (index * (360 / Math.max(total, 1))) % 360;
+  return `hsl(${hue}, 75%, 50%)`;
+}
+
+function hexToHsl(hex) {
+  // Ošetrenie hsl reťazcov ak prídu priamo
+  if (hex.startsWith('hsl')) {
+    const parts = hex.match(/\d+/g);
+    return { h: parseInt(parts[0]), s: parseInt(parts[1]), l: parseInt(parts[2]) };
+  }
+  let r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) { h = s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s: s * 100, l: l * 100 };
+}
+
+function hslShade(hex, marginPct) {
+  const c = hexToHsl(hex);
+  const t = Math.min(1, marginPct / 35);
+  const l = c.l * (1 - t * 0.4); 
+  const s = Math.min(100, c.s * (0.8 + t * 0.2));
+  return `hsl(${c.h}, ${s}%, ${l}%)`;
+}
+
+/* =========================================================
+   2. RE-INITIALIZE ENGINE STATE UPON DATA LOAD
+========================================================= */
+function initializeSimulationEngine() {
+  if (MUNICIPALITIES.length === 0 || PARTIES.length === 0) return;
+
+  // 1. Spočítanie mestskej / vidieckej priemernej účasti
+  const acc = { rural: [0, 0], urban: [0, 0] };
+  MUNICIPALITIES.forEach(m => { 
+    acc[m.type][0] += m.baseTurnout; 
+    acc[m.type][1] += 1; 
+  });
+  TYPE_AVG_TURNOUT.rural = acc.rural[1] > 0 ? acc.rural[0] / acc.rural[1] : 0.50;
+  TYPE_AVG_TURNOUT.urban = acc.urban[1] > 0 ? acc.urban[0] / acc.urban[1] : 0.65;
+
+  state.turnout.rural = TYPE_AVG_TURNOUT.rural;
+  state.turnout.urban = TYPE_AVG_TURNOUT.urban;
+
+  // Aktualizácia sliderov účasti
+  $('#turnout-rural').value = Math.round(state.turnout.rural * 100);
+  $('#turnout-urban').value = Math.round(state.turnout.urban * 100);
+  $('#turnout-rural-out').textContent = $('#turnout-rural').value + '%';
+  $('#turnout-urban-out').textContent = $('#turnout-urban').value + '%';
+
+  // 2. Vytvorenie lookup indexov okresov
+  for (let key in OKRES_INDEX) delete OKRES_INDEX[key];
   MUNICIPALITIES.forEach(m => {
     if (!OKRES_INDEX[m.okres]) OKRES_INDEX[m.okres] = [];
     OKRES_INDEX[m.okres].push(m);
   });
-})();
-(function computeNationalBaseline() {
+
+  // 3. Celonárodný baseline strán weighted podielom
   let totalVotes = 0;
   const partySums = {}; PARTIES.forEach(p => partySums[p.id] = 0);
   MUNICIPALITIES.forEach(m => {
     const votes = m.registeredVoters * m.baseTurnout;
     totalVotes += votes;
-    PARTIES.forEach(p => { partySums[p.id] += votes * (m.baseShares[p.id] / 100); });
+    PARTIES.forEach(p => { partySums[p.id] += votes * ((m.baseShares[p.id] || 0) / 100); });
   });
-  PARTIES.forEach(p => { NATIONAL_BASELINE[p.id] = (partySums[p.id] / totalVotes) * 100; });
-})();
+  PARTIES.forEach(p => { 
+    NATIONAL_BASELINE[p.id] = totalVotes > 0 ? (partySums[p.id] / totalVotes) * 100 : 0; 
+    state.partyTargets[p.id] = NATIONAL_BASELINE[p.id];
+  });
 
-// ---------- global state ----------
-const state = {
-  turnout: { rural: TYPE_AVG_TURNOUT.rural, urban: TYPE_AVG_TURNOUT.urban },
-  partyTargets: {}, // party id -> slider target (normalised live)
-  filter: { kraj: 'ALL', okres: null, type: 'ALL', q: '' },
-  sim: { running: false, reported: new Set(), queue: [], timer: null, startedAt: 0, durationMs: 30000, order: 'rural-first', locked: {} },
-};
-PARTIES.forEach(p => { state.partyTargets[p.id] = NATIONAL_BASELINE[p.id]; });
+  // Povolenie ovládacích prvkov
+  $('#btn-start').disabled = false;
+  $('#btn-random').disabled = false;
+  $('#btn-reset-parties').disabled = false;
 
-// ---------- swing / turnout computation ----------
+  // Vybudovanie filtrov
+  const krajSel = $('#filter-kraj');
+  krajSel.innerHTML = '<option value="ALL">Všetky kraje</option>';
+  REGIONS.forEach(r => {
+    const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.name;
+    krajSel.appendChild(opt);
+  });
+
+  buildPartyControls();
+  syncPartyControlsFromState();
+  renderAll();
+  $('#ticker-status').textContent = 'READY';
+}
+
+/* =========================================================
+   3. SIMULATION LOGIC CORE
+========================================================= */
 function normalisedTargets() {
   const sum = PARTIES.reduce((s, p) => s + Math.max(0, state.partyTargets[p.id]), 0) || 1;
   const out = {};
@@ -138,13 +377,13 @@ function swingDeltas() {
   return d;
 }
 
-// Universal (uniform national) swing applied to one municipality, plus turnout model.
 function computeMuniResult(m, deltas) {
-  let shares = PARTIES.map(p => Math.max(0, m.baseShares[p.id] + deltas[p.id]));
+  let shares = PARTIES.map(p => Math.max(0, (m.baseShares[p.id] || 0) + deltas[p.id]));
   const sum = shares.reduce((a, b) => a + b, 0) || 1;
   shares = shares.map(v => (v / sum) * 100);
 
-  const turnoutMultiplier = state.turnout[m.type] / TYPE_AVG_TURNOUT[m.type];
+  const avgTurnout = TYPE_AVG_TURNOUT[m.type] || 0.6;
+  const turnoutMultiplier = avgTurnout > 0 ? state.turnout[m.type] / avgTurnout : 1;
   let votesCast = Math.round(m.registeredVoters * m.baseTurnout * turnoutMultiplier);
   votesCast = Math.min(votesCast, m.registeredVoters);
   votesCast = Math.max(votesCast, 0);
@@ -158,19 +397,18 @@ function computeMuniResult(m, deltas) {
 function winnerOf(votes) {
   let best = null, bestV = -1, secondV = -1;
   PARTIES.forEach(p => {
-    const v = votes[p.id];
+    const v = votes[p.id] || 0;
     if (v > bestV) { secondV = bestV; bestV = v; best = p.id; }
     else if (v > secondV) { secondV = v; }
   });
-  const total = PARTIES.reduce((s, p) => s + votes[p.id], 0) || 1;
+  const total = PARTIES.reduce((s, p) => s + (votes[p.id] || 0), 0) || 1;
   const margin = ((bestV - Math.max(secondV, 0)) / total) * 100;
   return { party: best, margin };
 }
 
-// ---------- D'Hondt allocation ----------
 function dhondt(votesByParty, seats = 150, thresholdFrac = 0.05) {
   const total = PARTIES.reduce((s, p) => s + (votesByParty[p.id] || 0), 0) || 1;
-  const eligible = PARTIES.filter(p => (votesByParty[p.id] || 0) / total >= thresholdFrac);
+  const eligible = PARTIES.filter(p => ((votesByParty[p.id] || 0) / total) >= thresholdFrac);
   const counts = {}; PARTIES.forEach(p => counts[p.id] = 0);
   const quotients = [];
   eligible.forEach(p => {
@@ -179,28 +417,228 @@ function dhondt(votesByParty, seats = 150, thresholdFrac = 0.05) {
     }
   });
   quotients.sort((a, b) => b.q - a.q);
-  for (let i = 0; i < seats && i < quotients.length; i++) counts[quotients[i].id]++;
+  for (let i = 0; i < seats && i < quotients.length; i++) {
+    if (quotients[i]) counts[quotients[i].id]++;
+  }
   return counts;
 }
 
-// ---------- randomize with variety ----------
 function randomizeParties() {
   const r = Math.random;
   PARTIES.forEach(p => {
     const mode = r();
-    let factor;
-    if (mode < 0.15) factor = 0.25 + r() * 0.35;       // collapse
-    else if (mode < 0.3) factor = 1.6 + r() * 1.1;      // surge
-    else factor = 0.75 + r() * 0.6;                     // normal wobble
-    state.partyTargets[p.id] = Math.max(0.3, NATIONAL_BASELINE[p.id] * factor + (r() - 0.5) * 3);
+    let factor = (mode < 0.15) ? 0.35 + r()*0.35 : (mode < 0.3) ? 1.4 + r()*0.8 : 0.8 + r()*0.4;
+    state.partyTargets[p.id] = Math.max(0.1, NATIONAL_BASELINE[p.id] * factor + (r() - 0.5) * 2);
   });
   syncPartyControlsFromState();
   renderAll();
 }
 
-// ============================================================
-// RENDERING
-// ============================================================
+/* =========================================================
+   4. FILE IMPORT PIPELINE & DATA PARSING
+========================================================= */
+const DatasetStore = { geometry: null, votes: null };
+
+const XLSXAdapter = {
+  parse(buffer) {
+    const wb = XLSX.read(buffer, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+    if (rows.length === 0) return null;
+
+    // Dynamická detekcia stĺpcov politických strán
+    const firstRow = rows[0];
+    const rawKeys = Object.keys(firstRow);
+    
+    // Nájdeme kľúče, ktoré reprezentujú počty platných hlasov pre strany
+    const countPrefix = "Počet platných hlasov\nza ";
+    const sharePrefix = "Podiel platných hlasov v %\nza ";
+    
+    // Zistíme zoznam všetkých strán v dokumente
+    const detectedParties = [];
+    rawKeys.forEach(k => {
+      if (k.startsWith(countPrefix)) {
+        const partyName = k.replace(countPrefix, "").trim();
+        const shareKey = rawKeys.find(sk => sk.startsWith(sharePrefix) && sk.includes(partyName));
+        detectedParties.push({ name: partyName, countKey: k, shareKey: shareKey });
+      }
+    });
+
+    // Transformácia do globálnej štruktúry PARTIES
+    PARTIES = detectedParties.map((p, idx) => ({
+      id: "p_" + idx,
+      name: p.name,
+      short: p.name.substring(0, 10),
+      color: generatePartyColor(idx, detectedParties.length),
+      base: 0,
+      countKey: p.countKey,
+      shareKey: p.shareKey
+    }));
+
+    return rows;
+  }
+};
+
+const ShapefileAdapter = {
+  async parse(file) {
+    const buffer = await file.arrayBuffer();
+    const geo = await shp(buffer);
+    const features = geo?.features || geo?.[0]?.features || geo.features || [];
+    return features.map(f => ({
+      id: String(f.properties?.IDN4 || "").trim(),
+      name: f.properties?.NM4,
+      okres: f.properties?.NM3,
+      kraj: f.properties?.NM2,
+      vymera: f.properties?.VYMERA || f.properties?.Shape_Area || 10000000
+    }));
+  }
+};
+
+async function loadFile(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  const buffer = await file.arrayBuffer();
+
+  if (ext === "xlsx") {
+    DatasetStore.votes = XLSXAdapter.parse(buffer);
+    document.getElementById("status-xlsx").textContent = "Načítané (" + DatasetStore.votes.length + " obcí)";
+    document.getElementById("status-xlsx").className = "text-emerald-400 font-bold";
+  }
+  if (ext === "zip") {
+    DatasetStore.geometry = await ShapefileAdapter.parse(file);
+    document.getElementById("status-geo").textContent = "Načítané (" + DatasetStore.geometry.length + " hraníc)";
+    document.getElementById("status-geo").className = "text-emerald-400 font-bold";
+  }
+
+  // Ak máme oba datasety, spárujeme ich do štruktúry pre engine
+  if (DatasetStore.votes && DatasetStore.geometry) {
+    matchAndBuildDatasets();
+  } else if (DatasetStore.votes && !DatasetStore.geometry) {
+    // Ak máme aspoň excel dáta, vytvoríme aspoň základnú tabuľku
+    buildDatasetFromExcelOnly();
+  }
+}
+
+function matchAndBuildDatasets() {
+  MUNICIPALITIES = [];
+  const geoMap = new Map();
+  DatasetStore.geometry.forEach(g => geoMap.set(String(g.id), g));
+
+  let matchedCount = 0;
+  
+  // Agregátory pre dynamické budovanie krajov a okresov
+  const krajeSet = new Map();
+
+  DatasetStore.votes.forEach((v, idx) => {
+    const excelMuniCode = String(v["Kód obce"] || "").trim();
+    const geoInfo = geoMap.get(excelMuniCode);
+
+    const registered = v["Počet zapísaných voličov"] || v["Voliči zapísaní v zozname"] || Math.round((v["Počet platných hlasov spolu"] || 100) * 1.4);
+    const cast = v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 80;
+    const turnout = registered > 0 ? (cast / registered) : 0.6;
+
+    // Výpočet podielov jednotlivých strán v tejto konkrétnej obci
+    const baseShares = {};
+    PARTIES.forEach(p => {
+      let shareValue = 0;
+      if (p.shareKey && v[p.shareKey] !== undefined) {
+        shareValue = parseFloat(v[p.shareKey]);
+      } else if (p.countKey && v[p.countKey] !== undefined) {
+        shareValue = (v[p.countKey] / (v["Počet platných hlasov spolu"] || 1)) * 100;
+      }
+      baseShares[p.id] = isNaN(shareValue) ? 0 : shareValue;
+    });
+
+    const krajName = geoInfo ? geoInfo.kraj : (v["Názov kraja"] || "Neznámy kraj");
+    const okresName = geoInfo ? geoInfo.okres : (v["Názov okresu"] || "Neznámy okres");
+    const muniName = geoInfo ? geoInfo.name : (v["Názov obce"] || "Neznáma obec");
+    
+    // Jednoduchá heuristika vidiek/mesto: Ak má obec v názve "Mesto" alebo rozlohu vs voličov nad limit
+    const isUrban = muniName.toLowerCase().includes("mesto") || (geoInfo && (registered / (geoInfo.vymera / 1000000)) > 250) || registered > 5000;
+    const type = isUrban ? "urban" : "rural";
+
+    if (geoInfo) matchedCount++;
+
+    const muniObject = {
+      id: excelMuniCode || "m_" + idx,
+      name: muniName,
+      okres: okresName,
+      kraj: krajName,
+      type: type,
+      registeredVoters: registered,
+      baseTurnout: turnout,
+      baseShares: baseShares
+    };
+
+    MUNICIPALITIES.push(muniObject);
+
+    // Zbieranie do zoznamu hierarchie pre kartogram
+    if (!krajeSet.has(krajName)) {
+      krajeSet.set(krajName, new Set());
+    }
+    krajeSet.get(krajName).add(okresName);
+  });
+
+  document.getElementById("status-matched").textContent = matchedCount + " z " + MUNICIPALITIES.length;
+
+  // Vybudovanie REGIONS poľa pre rendering hex-mapy
+  REGIONS = [];
+  krajeSet.forEach((okresySet, krajName) => {
+    REGIONS.push({
+      id: krajName.substring(0, 4).toUpperCase().replace("SÝ", "S"),
+      name: krajName,
+      okresy: Array.from(okresySet)
+    });
+  });
+
+  initializeSimulationEngine();
+}
+
+function buildDatasetFromExcelOnly() {
+  // Ak užívateľ nemá shapefile, vygenerujeme simuláciu priamo z Excelu
+  MUNICIPALITIES = [];
+  const krajeSet = new Map();
+
+  DatasetStore.votes.forEach((v, idx) => {
+    const registered = parseInt(v["Počet zapísaných voličov"] || 1000);
+    const cast = parseInt(v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 700);
+    const turnout = registered > 0 ? (cast / registered) : 0.65;
+
+    const baseShares = {};
+    PARTIES.forEach(p => {
+      let val = p.shareKey ? parseFloat(v[p.shareKey]) : ((v[p.countKey] || 0) / (v["Počet platných hlasov spolu"] || 1)) * 100;
+      baseShares[p.id] = isNaN(val) ? 0 : val;
+    });
+
+    const krajName = v["Názov kraja"] || "SR Kraj";
+    const okresName = v["Názov okresu"] || "SR Okres";
+    const type = registered > 4000 ? "urban" : "rural";
+
+    MUNICIPALITIES.push({
+      id: String(v["Kód obce"] || idx),
+      name: v["Názov obce"] || "Obec",
+      okres: okresName,
+      kraj: krajName,
+      type: type,
+      registeredVoters: registered,
+      baseTurnout: turnout,
+      baseShares: baseShares
+    });
+
+    if (!krajeSet.has(krajName)) krajeSet.set(krajName, new Set());
+    krajeSet.get(krajName).add(okresName);
+  });
+
+  REGIONS = [];
+  krajeSet.forEach((okresy, kraj) => {
+    REGIONS.push({ id: kraj.substring(0,4).toUpperCase(), name: kraj, okresy: Array.from(okresy) });
+  });
+
+  initializeSimulationEngine();
+}
+
+/* =========================================================
+   5. RENDER ENGINE (HTML Layout Updates)
+========================================================= */
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 
@@ -219,47 +657,24 @@ function aggregateVotes(municipalities) {
   municipalities.forEach(m => {
     if (!isReported(m)) return;
     const r = currentMuniResult(m);
-    PARTIES.forEach(p => votes[p.id] += r.votes[p.id]);
+    PARTIES.forEach(p => votes[p.id] += r.votes[p.id] || 0);
     total += r.votesCast;
     registered += m.registeredVoters;
   });
   return { votes, total, registered };
 }
 
-function hslShade(hex, marginPct) {
-  // margin 0-40+ -> lightness travel; bigger margin = darker/richer
-  const c = hexToHsl(hex);
-  const t = Math.min(1, marginPct / 35);
-  const l = c.l * (1 - t * 0.55); // darken toward saturated
-  const s = Math.min(100, c.s * (0.7 + t * 0.5));
-  return `hsl(${c.h}, ${s}%, ${l}%)`;
-}
-function hexToHsl(hex) {
-  let r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h, s, l = (max + min) / 2;
-  if (max === min) { h = s = 0; }
-  else {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h *= 60;
-  }
-  return { h, s: s * 100, l: l * 100 };
-}
-
-// ---- map (hex cartogram at okres level) ----
 function renderMap() {
   const container = $('#map');
+  if (REGIONS.length === 0) return;
   container.innerHTML = '';
+  
+  // Prepnutie flex gridu namiesto prazdneho stavu
+  container.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 w-full bg-slate-950 p-4 rounded-xl";
+
   REGIONS.forEach(region => {
     const box = document.createElement('div');
     box.className = 'kraj-box';
-    box.style.gridArea = region.id.toLowerCase();
     box.dataset.kraj = region.id;
 
     const label = document.createElement('div');
@@ -280,30 +695,35 @@ function renderMap() {
 
       if (total === 0) {
         hex.classList.add('pending');
-        hex.style.background = '#20242e';
+        hex.style.background = '#1e293b';
       } else {
         const w = winnerOf(votes);
         const party = PARTIES.find(p => p.id === w.party);
-        hex.style.background = hslShade(party.color, w.margin);
+        if (party) {
+          hex.style.background = hslShade(party.color, w.margin);
+        } else {
+          hex.style.background = '#334155';
+        }
         if (state.sim.running && [...munis].some(m => state.sim.reported.has(m.id)) && !munis.every(m => isReported(m))) {
           hex.classList.add('partial');
         }
       }
       const rep = munis.filter(isReported).length;
-      hex.innerHTML = `<span class="hex-pct">${Math.round((rep / munis.length) * 100)}%</span>`;
-      hex.addEventListener('click', () => openOkresDetail(okresName));
+      hex.innerHTML = `<span class="hex-pct">${munis.length > 0 ? Math.round((rep / munis.length) * 100) : 0}%</span>`;
+      hex.addEventListener('click', (e) => { e.stopPropagation(); openOkresDetail(okresName); });
       hexWrap.appendChild(hex);
     });
 
     box.appendChild(hexWrap);
-    box.addEventListener('click', (e) => { if (e.target === box || e.target === label) setFilterKraj(region.id); });
+    box.addEventListener('click', () => setFilterKraj(region.id));
     container.appendChild(box);
   });
 }
 
 function openOkresDetail(okresName) {
   state.filter.okres = okresName;
-  state.filter.kraj = MUNICIPALITIES.find(m => m.okres === okresName).kraj;
+  const sampleMuni = MUNICIPALITIES.find(m => m.okres === okresName);
+  state.filter.kraj = sampleMuni ? REGIONS.find(r => r.name === sampleMuni.kraj)?.id || 'ALL' : 'ALL';
   $('#filter-kraj').value = state.filter.kraj;
   renderTable();
   $('#panel-table').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -316,40 +736,47 @@ function setFilterKraj(krajId) {
   renderTable();
 }
 
-// ---- national bar + ticker ----
 function renderNational() {
-  const all = MUNICIPALITIES;
-  const { votes, total, registered } = aggregateVotes(all);
-  const reportedCount = state.sim.reported.size || (state.sim.running ? 0 : all.length);
-  const pctCounted = state.sim.reported.size === 0 && !state.sim.running ? 100 : Math.round((state.sim.reported.size / all.length) * 100);
+  if (MUNICIPALITIES.length === 0) return;
+  const { votes, total, registered } = aggregateVotes(MUNICIPALITIES);
+  
+  const pctCounted = MUNICIPALITIES.length > 0 ? (state.sim.reported.size === 0 && !state.sim.running ? 100 : Math.round((state.sim.reported.size / MUNICIPALITIES.length) * 100)) : 0;
 
   const bar = $('#national-bar'); bar.innerHTML = '';
-  const sorted = [...PARTIES].sort((a, b) => votes[b.id] - votes[a.id]);
+  const sorted = [...PARTIES].sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0));
+  
   sorted.forEach(p => {
-    const pct = total ? (votes[p.id] / total) * 100 : 0;
-    const seg = document.createElement('div');
-    seg.className = 'bar-seg';
-    seg.style.width = pct + '%';
-    seg.style.background = p.color;
-    seg.title = `${p.short} ${pct.toFixed(1)}%`;
-    bar.appendChild(seg);
+    const pct = total ? ((votes[p.id] || 0) / total) * 100 : 0;
+    if (pct > 0.5) { // nezobrazujeme mikrosegmenty pod 0.5% v grafe pre prehladnost
+      const seg = document.createElement('div');
+      seg.className = 'bar-seg';
+      seg.style.width = pct + '%';
+      seg.style.background = p.color;
+      seg.title = `${p.short}: ${pct.toFixed(1)}%`;
+      bar.appendChild(seg);
+    }
   });
 
   const legend = $('#national-legend'); legend.innerHTML = '';
   sorted.forEach(p => {
-    const pct = total ? (votes[p.id] / total) * 100 : 0;
+    const pct = total ? ((votes[p.id] || 0) / total) * 100 : 0;
     const row = document.createElement('div');
     row.className = 'legend-row';
-    row.innerHTML = `<span class="swatch" style="background:${p.color}"></span>
-      <span class="legend-name">${p.short}</span>
-      <span class="legend-pct">${pct.toFixed(1)}%</span>`;
+    row.innerHTML = `<div><span class="swatch" style="background:${p.color}"></span>
+      <span class="legend-name font-medium">${p.short}</span></div>
+      <span class="legend-pct text-gray-200">${pct.toFixed(2)}%</span>`;
     legend.appendChild(row);
   });
 
-  $('#ticker-counted').textContent = `${pctCounted}% counted`;
-  $('#ticker-turnout').textContent = total && registered ? `turnout ${(total / registered * 100).toFixed(1)}%` : '—';
+  $('#ticker-counted').textContent = `${pctCounted}% obcí sčítaných`;
+  $('#ticker-turnout').textContent = total && registered ? `Účasť: ${(total / registered * 100).toFixed(1)}%` : 'Účasť: —';
+  
   const lead = sorted[0];
-  $('#ticker-leader').innerHTML = total ? `<span class="swatch" style="background:${lead.color}"></span> ${lead.name} leading` : 'awaiting results';
+  if (lead && total > 0) {
+    $('#ticker-leader').innerHTML = `<span class="swatch" style="background:${lead.color}"></span> VEDIE: <b>${lead.name}</b>`;
+  } else {
+    $('#ticker-leader').textContent = 'Čaká sa na výsledky...';
+  }
 
   renderSeats(votes);
 }
@@ -360,14 +787,14 @@ function renderSeats(votes) {
   const svgNS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('viewBox', '0 0 600 320');
-  svg.setAttribute('class', 'hemicycle');
+  svg.setAttribute('class', 'w-full h-full');
 
   const seatSeq = [];
   order.forEach(p => { for (let i = 0; i < seats[p.id]; i++) seatSeq.push(p.color); });
-  while (seatSeq.length < 150) seatSeq.push('#2a2f3a');
+  while (seatSeq.length < 150) seatSeq.push('#334155');
 
   const rows = 8;
-  const rMin = 60, rMax = 280;
+  const rMin = 70, rMax = 270;
   const radii = Array.from({ length: rows }, (_, i) => rMin + (i * (rMax - rMin)) / (rows - 1));
   const weights = radii.map(r => r);
   const wsum = weights.reduce((a, b) => a + b, 0);
@@ -380,38 +807,36 @@ function renderSeats(votes) {
     const r = radii[rIdx];
     for (let i = 0; i < cnt; i++) {
       const t = cnt === 1 ? 0.5 : i / (cnt - 1);
-      const angle = Math.PI - t * Math.PI; // 180deg -> 0deg
+      const angle = Math.PI - t * Math.PI; 
       const cx = 300 + r * Math.cos(angle);
       const cy = 300 - r * Math.sin(angle);
       const c = document.createElementNS(svgNS, 'circle');
-      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 8);
-      c.setAttribute('fill', seatSeq[idx] || '#2a2f3a');
+      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 7);
+      c.setAttribute('fill', seatSeq[idx] || '#334155');
       svg.appendChild(c);
       idx++;
     }
   });
 
-  const host = $('#hemicycle-host');
-  host.innerHTML = '';
-  host.appendChild(svg);
+  const host = $('#hemicycle-host'); host.innerHTML = ''; host.appendChild(svg);
 
   const seatList = $('#seat-list'); seatList.innerHTML = '';
   order.filter(p => seats[p.id] > 0).forEach(p => {
     const row = document.createElement('div');
     row.className = 'legend-row';
-    row.innerHTML = `<span class="swatch" style="background:${p.color}"></span>
-      <span class="legend-name">${p.short}</span>
-      <span class="legend-pct">${seats[p.id]}</span>`;
+    row.innerHTML = `<div><span class="swatch" style="background:${p.color}"></span><span>${p.short}</span></div>
+      <span class="font-bold text-blue-400 font-mono">${seats[p.id]} m.</span>`;
     seatList.appendChild(row);
   });
+  
   const majority = 76;
-  $('#seat-total').textContent = `150 seats · ${majority} for a majority`;
+  $('#seat-total').textContent = `150 kresiel · Väčšina = ${majority}`;
 }
 
-// ---- municipality table ----
 function filteredMunicipalities() {
+  const currentKrajName = state.filter.kraj !== 'ALL' ? REGIONS.find(r => r.id === state.filter.kraj)?.name : null;
   return MUNICIPALITIES.filter(m => {
-    if (state.filter.kraj !== 'ALL' && m.kraj !== state.filter.kraj) return false;
+    if (currentKrajName && m.kraj !== currentKrajName) return false;
     if (state.filter.okres && m.okres !== state.filter.okres) return false;
     if (state.filter.type !== 'ALL' && m.type !== state.filter.type) return false;
     if (state.filter.q && !m.name.toLowerCase().includes(state.filter.q.toLowerCase())) return false;
@@ -422,8 +847,16 @@ function filteredMunicipalities() {
 function renderTable() {
   const tbody = $('#muni-tbody');
   tbody.innerHTML = '';
-  const list = filteredMunicipalities().slice(0, 400);
-  list.forEach(m => {
+  const list = filteredMunicipalities();
+  const visibleList = list.slice(0, 250); // Bezpečnostný limit pre plynulosť DOMu
+  
+  if (visibleList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-500 italic">Žiadne obce nezodpovedajú filtrom.</td></tr>`;
+    $('#table-count').textContent = `0 z 0 obcí`;
+    return;
+  }
+
+  visibleList.forEach(m => {
     const reported = isReported(m);
     const r = currentMuniResult(m);
     const w = reported ? winnerOf(r.votes) : null;
@@ -432,40 +865,19 @@ function renderTable() {
     tr.dataset.type = m.type;
     tr.dataset.id = m.id;
     if (!reported) tr.classList.add('row-pending');
+    
+    tbody.appendChild(tr);
     tr.innerHTML = `
-      <td>${m.name}</td>
+      <td class="font-medium text-gray-200">${m.name}</td>
       <td class="muted">${m.okres}</td>
-      <td><span class="pill pill-${m.type}">${m.type === 'urban' ? 'urban' : 'rural'}</span></td>
+      <td><span class="pill pill-${m.type}">${m.type === 'urban' ? 'Mesto' : 'Vidiek'}</span></td>
       <td class="num">${m.registeredVoters.toLocaleString()}</td>
       <td class="num">${reported ? r.votesCast.toLocaleString() : '—'}</td>
       <td class="num">${reported ? ((r.votesCast / m.registeredVoters) * 100).toFixed(1) + '%' : '—'}</td>
-      <td>${party ? `<span class="swatch" style="background:${party.color}"></span> ${party.short} <span class="muted">(+${w.margin.toFixed(1)})</span>` : '<span class="muted">awaiting</span>'}</td>
+      <td>${party ? `<span class="swatch" style="background:${party.color}"></span> ${party.short} <span class="muted font-mono">(+${w.margin.toFixed(1)}%)</span>` : '<span class="muted italic">sčítava sa...</span>'}</td>
     `;
-    tbody.appendChild(tr);
   });
-  $('#table-count').textContent = `${list.length} of ${filteredMunicipalities().length} shown`;
-}
-
-function flashType(type) {
-  $$(`.hex`).forEach(h => {}); // hexes are okres-level; flash table + region boxes instead
-  $$(`tr[data-type="${type}"]`).forEach(tr => {
-    tr.classList.add('flash');
-    setTimeout(() => tr.classList.remove('flash'), 900);
-  });
-  $$('.kraj-box').forEach(b => {
-    b.classList.add('flash-box');
-    setTimeout(() => b.classList.remove('flash-box'), 900);
-  });
-}
-
-// ---- party controls ----
-function syncPartyControlsFromState() {
-  PARTIES.forEach(p => {
-    const input = document.querySelector(`input[data-party="${p.id}"]`);
-    if (input) input.value = state.partyTargets[p.id].toFixed(1);
-    const out = document.querySelector(`output[data-party-out="${p.id}"]`);
-    if (out) out.textContent = normalisedTargets()[p.id].toFixed(1) + '%';
-  });
+  $('#table-count').textContent = `Zobrazených ${visibleList.length} z ${list.length} nájdených obcí`;
 }
 
 function buildPartyControls() {
@@ -473,14 +885,13 @@ function buildPartyControls() {
   host.innerHTML = '';
   PARTIES.forEach(p => {
     const row = document.createElement('div');
-    row.className = 'party-row';
+    row.className = 'party-row bg-slate-900/40 p-2 rounded-lg border border-gray-800/60';
     row.innerHTML = `
       <div class="party-row-head">
-        <span class="swatch" style="background:${p.color}"></span>
-        <span class="party-name">${p.name}</span>
-        <output data-party-out="${p.id}">${p.base.toFixed(1)}%</output>
+        <div><span class="swatch" style="background:${p.color}"></span><span class="party-name text-gray-200">${p.name}</span></div>
+        <output data-party-out="${p.id}" class="font-mono text-xs font-bold text-blue-400">0.0%</output>
       </div>
-      <input type="range" min="0" max="45" step="0.5" value="${p.base}" data-party="${p.id}">
+      <input type="range" min="0" max="50" step="0.2" value="${NATIONAL_BASELINE[p.id]?.toFixed(1) || 0}" data-party="${p.id}">
     `;
     host.appendChild(row);
     row.querySelector('input').addEventListener('input', (e) => {
@@ -491,12 +902,31 @@ function buildPartyControls() {
   });
 }
 
-// ---- simulation engine ----
+function syncPartyControlsFromState() {
+  const targets = normalisedTargets();
+  PARTIES.forEach(p => {
+    const input = document.querySelector(`input[data-party="${p.id}"]`);
+    if (input) input.value = state.partyTargets[p.id];
+    const out = document.querySelector(`output[data-party-out="${p.id}"]`);
+    if (out) out.textContent = (targets[p.id] || 0).toFixed(1) + '%';
+  });
+}
+
+function flashType(type) {
+  $$(`tr[data-type="${type}"]`).forEach(tr => {
+    tr.classList.add('flash');
+    setTimeout(() => tr.classList.remove('flash'), 500);
+  });
+}
+
+/* =========================================================
+   6. REALTIME RUNTIME ENGINE SIMULATION
+========================================================= */
 function buildQueue() {
   const scored = MUNICIPALITIES.map(m => {
     let base = Math.random();
-    if (state.sim.order === 'rural-first') base = m.type === 'rural' ? base * 0.65 : base * 0.65 + 0.35;
-    else if (state.sim.order === 'urban-first') base = m.type === 'urban' ? base * 0.65 : base * 0.65 + 0.35;
+    if (state.sim.order === 'rural-first') base = m.type === 'rural' ? base * 0.5 : base * 0.5 + 0.5;
+    else if (state.sim.order === 'urban-first') base = m.type === 'urban' ? base * 0.5 : base * 0.5 + 0.5;
     return { id: m.id, score: base };
   });
   scored.sort((a, b) => a.score - b.score);
@@ -511,23 +941,25 @@ function startSimulation() {
   state.sim.running = true;
   state.sim.startedAt = Date.now();
   state.sim.durationMs = parseInt($('#speed-slider').value, 10) * 1000;
-  $('#btn-start').textContent = '⟳ Running…';
+  
+  $('#btn-start').textContent = '⟳ Načítavam...';
   $('#btn-start').disabled = true;
   $('#btn-reset').disabled = false;
+  $('#ticker-status').textContent = 'LIVE COUNT';
 
-  const tickMs = 150;
+  const tickMs = 100;
   const totalTicks = Math.max(1, Math.round(state.sim.durationMs / tickMs));
-  let tick = 0;
   const perTick = Math.max(1, Math.ceil(state.sim.queue.length / totalTicks));
 
   state.sim.timer = setInterval(() => {
-    tick++;
     const deltas = swingDeltas();
     for (let i = 0; i < perTick && state.sim.queue.length; i++) {
       const id = state.sim.queue.shift();
       const m = MUNICIPALITIES.find(x => x.id === id);
-      state.sim.locked[id] = computeMuniResult(m, deltas);
-      state.sim.reported.add(id);
+      if (m) {
+        state.sim.locked[id] = computeMuniResult(m, deltas);
+        state.sim.reported.add(id);
+      }
     }
     renderAll();
     if (state.sim.queue.length === 0) {
@@ -539,18 +971,15 @@ function startSimulation() {
 function finishSimulation() {
   clearInterval(state.sim.timer);
   state.sim.running = false;
-  $('#btn-start').textContent = '▶ Start count';
+  $('#btn-start').textContent = '▶ Spustiť znova';
   $('#btn-start').disabled = false;
-  $('#ticker-status').textContent = 'FINAL RESULT';
-  $('#ticker-status').classList.add('final');
+  $('#ticker-status').textContent = 'DEFINITÍVNE';
 }
 
 function stopSimulation(reRender = true) {
   if (state.sim.timer) clearInterval(state.sim.timer);
   state.sim.timer = null;
   state.sim.running = false;
-  $('#ticker-status').textContent = 'LIVE';
-  $('#ticker-status').classList.remove('final');
   if (reRender) renderAll();
 }
 
@@ -558,14 +987,21 @@ function resetSimulation() {
   stopSimulation(false);
   state.sim.reported = new Set();
   state.sim.locked = {};
-  $('#btn-start').textContent = '▶ Start count';
+  $('#btn-start').textContent = '▶ Spustiť sčítavanie';
   $('#btn-start').disabled = false;
   $('#ticker-status').textContent = 'READY';
-  $('#ticker-status').classList.remove('final');
   renderAll();
 }
 
-// ---- wire up static controls ----
+function renderAll() {
+  renderMap();
+  renderNational();
+  renderTable();
+}
+
+/* =========================================================
+   7. EVENT WIRES & ATTACHMENTS
+========================================================= */
 function wireControls() {
   $('#turnout-rural').addEventListener('input', (e) => {
     state.turnout.rural = parseFloat(e.target.value) / 100;
@@ -579,10 +1015,6 @@ function wireControls() {
     flashType('urban');
     renderAll();
   });
-  $('#turnout-rural').value = Math.round(TYPE_AVG_TURNOUT.rural * 100);
-  $('#turnout-urban').value = Math.round(TYPE_AVG_TURNOUT.urban * 100);
-  $('#turnout-rural-out').textContent = $('#turnout-rural').value + '%';
-  $('#turnout-urban-out').textContent = $('#turnout-urban').value + '%';
 
   $('#btn-random').addEventListener('click', randomizeParties);
   $('#btn-reset-parties').addEventListener('click', () => {
@@ -597,7 +1029,6 @@ function wireControls() {
   $('#speed-slider').addEventListener('input', (e) => {
     $('#speed-out').textContent = e.target.value + 's';
   });
-  $('#speed-out').textContent = $('#speed-slider').value + 's';
 
   $('#filter-kraj').addEventListener('change', (e) => {
     state.filter.kraj = e.target.value; state.filter.okres = null; renderTable();
@@ -609,124 +1040,19 @@ function wireControls() {
     $('#filter-kraj').value = 'ALL'; $('#filter-type').value = 'ALL'; $('#filter-q').value = '';
     renderTable();
   });
-
-  const krajSel = $('#filter-kraj');
-  REGIONS.forEach(r => {
-    const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.name;
-    krajSel.appendChild(opt);
-  });
 }
 
-function renderAll() {
-  renderMap();
-  renderNational();
-  renderTable();
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  buildPartyControls();
-  wireControls();
-  renderAll();
-  $('#ticker-status').textContent = 'READY';
-});
-
-/* =========================================================
-   1. DATA STORE (single source of truth)
-========================================================= */
-const DatasetStore = {
-  municipalities: [],
-  geometry: [],
-  votes: [],
-};
-
-/* =========================================================
-   2. XLSX ADAPTER (your voting file)
-========================================================= */
-const XLSXAdapter = {
-  parse(file) {
-    const wb = XLSX.read(file, { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
-
-    return rows.map(r => ({
-      kraj: r["Kód kraja"],
-      okres: r["Názov okresu"],
-      obec: r["Názov obce"],
-      votes: r
-    }));
-  }
-};
-
-/* =========================================================
-   3. SHAPEFILE ADAPTER (obec_0.zip)
-========================================================= */
-const ShapefileAdapter = {
-  async parse(file) {
-    const buffer = await file.arrayBuffer();
-    const geo = await shp(buffer);
-
-    const features = geo?.features || geo?.[0]?.features || geo.features;
-
-    return features.map(f => ({
-      id: f.properties?.IDN4,
-      name: f.properties?.NM4,
-      okres: f.properties?.NM3,
-      kraj: f.properties?.NM2,
-      geometry: f.geometry
-    }));
-  }
-};
-
-/* =========================================================
-   4. LOADER (THE PLUG ROUTER)
-========================================================= */
-async function loadFile(file) {
-  const ext = file.name.split(".").pop().toLowerCase();
-
-  const buffer = await file.arrayBuffer();
-
-  if (ext === "xlsx") {
-    DatasetStore.votes = XLSXAdapter.parse(buffer);
-  }
-
-  if (ext === "zip") {
-    DatasetStore.geometry = await ShapefileAdapter.parse(file);
-  }
-
-  renderUI();
-}
-
-/* =========================================================
-   5. SIMPLE SIM ENGINE (placeholder hook)
-========================================================= */
-function runSimulation() {
-  alert("Simulation hook ready — plug your D'Hondt logic here");
-}
-
-/* =========================================================
-   6. UI RENDER
-========================================================= */
-function renderUI() {
-  document.getElementById("datasetInfo").innerHTML = `
-    <div>Votes rows: ${DatasetStore.votes.length}</div>
-    <div>Geometry features: ${DatasetStore.geometry.length}</div>
-  `;
-
-  document.getElementById("table").innerHTML = `
-    <div>Loaded dataset ready for processing.</div>
-  `;
-}
-
-/* =========================================================
-   7. EVENT WIRING
-========================================================= */
 document.getElementById("fileInput").addEventListener("change", async (e) => {
+  $('#ticker-status').textContent = 'SPRACOVÁVAM...';
   for (const file of e.target.files) {
     await loadFile(file);
   }
 });
 
-document.getElementById("runSim").addEventListener("click", runSimulation);
+// Inicializácia pri pripravenom DOMe
+document.addEventListener('DOMContentLoaded', () => {
+  wireControls();
+});
 </script>
 
 </body>
