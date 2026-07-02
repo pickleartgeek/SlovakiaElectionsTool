@@ -1,238 +1,246 @@
 <!DOCTYPE html>
-<html lang="sk">
+<html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>SlovakiaElectionsTool — Live Data Integration</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SlovakiaElectionsTool — Tactical Swing Sandbox</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
 <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <style>
-  body { background:#070a10; color:#e5e7eb; font-family: system-ui; }
-  .card { background:#0b1220; border:1px solid rgba(255,255,255,0.06); border-radius:16px; }
-  .mono { font-family: ui-monospace, monospace; }
+  body { background-color: #030712; color: #f3f4f6; font-family: ui-sans-serif, system-ui, sans-serif; }
+  .cyber-panel { background: rgba(17, 24, 39, 0.7); border: 1px solid rgba(59, 130, 246, 0.2); backdrop-filter: blur(8px); }
+  .cyber-ready { border-color: rgba(16, 185, 129, 0.4) !important; box-shadow: 0 0 10px rgba(16, 185, 129, 0.1); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
   
-  /* Map grid placeholder & styling */
-  #map { background: radial-gradient(#1f2937 1px, transparent 1px); background-size: 18px 18px; }
-  .kraj-box { border: 1px solid rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; background: #0f172a; cursor: pointer; transition: all 0.2s; }
-  .kraj-box:hover { border-color: rgba(255,255,255,0.2); }
-  .kraj-label { font-weight: bold; font-size: 11px; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; }
-  .hex-wrap { display: flex; flex-wrap: wrap; gap: 4px; }
-  .hex { width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; cursor: pointer; position: relative; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
-  .hex.pending { animation: pulse 2s infinite; }
-  .hex.partial { border: 2px dashed #fbbf24; }
-  .hex-pct { font-size: 9px; opacity: 0.9; }
+  /* Custom scrollbars for a clean tech look */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: rgba(31, 41, 55, 0.5); }
+  ::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.3); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.5); }
 
-  /* Utility classes */
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-  .legend-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-  .legend-name { flex-grow: 1; margin-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .legend-pct { font-family: monospace; font-weight: bold; }
+  /* Map/Cartogram hex nodes */
+  .hex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; }
+  .hex-node { aspect-ratio: 1; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; position: relative; transition: all 0.2s ease; cursor: pointer; border: 1px solid rgba(255,255,255,0.05); }
+  .hex-node:hover { transform: scale(1.08); z-index: 10; box-shadow: 0 0 12px rgba(59,130,246,0.4); }
+  .hex-node.reporting { animation: pulse-glow 1.5s infinite ease-in-out; }
   
-  .bar-seg { height: 100%; transition: width 0.3s ease; }
-  
-  /* Table styling */
-  .muni-table-wrapper { overflow-x: auto; max-height: 400px; overflow-y: auto; }
-  table { width: 100%; text-align: left; border-collapse: collapse; }
-  th { background: #0f172a; position: sticky; top: 0; padding: 8px; font-size: 11px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid rgba(255,255,255,0.1); }
-  td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-  .row-pending { opacity: 0.5; }
-  .num { text-align: right; font-family: monospace; }
-  .muted { color: #64748b; }
-  .pill { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
-  .pill-urban { background: #1e3a8a; color: #93c5fd; }
-  .pill-rural { background: #064e3b; color: #6ee7b7; }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 4px rgba(59,130,246,0.2); }
+    50% { box-shadow: 0 0 14px rgba(59,130,246,0.6); border-color: rgba(59,130,246,0.6); }
+  }
 
-  @keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-  .flash { background-color: rgba(59, 130, 246, 0.2) !important; transition: background 0.1s; }
-  .flash-box { border-color: #3b82f6 !important; }
+  /* Table styling overrides */
+  .muni-table-container { max-height: 440px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05); }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; }
+  th { background: #111827; position: sticky; top: 0; z-index: 20; padding: 10px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; border-bottom: 2px solid rgba(59, 130, 246, 0.2); }
+  td { padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 12px; }
+  tr.pending { opacity: 0.4; }
   
-  /* Party controls */
-  .party-row { margin-bottom: 8px; }
-  .party-row-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
-  .party-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
-  input[type="range"] { width: 100%; accent-color: #3b82f6; background: #1e293b; height: 6px; border-radius: 3px; outline: none; }
+  input[type="range"] { accent-color: #3b82f6; background: #374151; height: 5px; border-radius: 9999px; }
 </style>
 </head>
+<body class="p-4 lg:p-6">
 
-<body class="p-4">
+<div class="max-w-[1700px] mx-auto space-y-4">
 
-<div class="max-w-[1600px] mx-auto space-y-4">
-
-  <div class="card p-4 flex justify-between items-center">
+  <div class="cyber-panel p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-l-4 border-l-blue-500">
     <div>
-      <h1 class="text-xl font-bold tracking-tight">VOĽBY.SIM <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded ml-2">LIVE DATA</span></h1>
-      <p class="text-xs text-gray-400">Plne funkčné spracovanie dát z SU SR (.xlsx) a GIS (.zip shapefile)</p>
+      <h1 class="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">SLOVAKIA.ELECTION.HUD</h1>
+      <p class="text-xs text-gray-400 font-mono mt-0.5">Tactical Swing Simulator & Real-Time GIS Pipeline Engine</p>
     </div>
-
-    <div class="flex items-center gap-2">
-      <span class="text-xs text-gray-400">Nahrajte súbory spolu:</span>
-      <input id="fileInput" type="file" multiple
-        class="text-xs bg-gray-900 p-2 rounded border border-gray-700 text-gray-300 cursor-pointer focus:outline-none"/>
+    
+    <div class="flex flex-wrap items-center gap-3 bg-gray-900/90 p-2 rounded-lg border border-gray-800">
+      <span class="text-xs font-mono text-gray-400 px-2">FEED SOURCE LOGISTICS:</span>
+      <input id="fileLoader" type="file" multiple 
+        class="text-xs text-gray-400 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-600/20 file:text-blue-400 hover:file:bg-blue-600/30 file:cursor-pointer cursor-pointer focus:outline-none" />
     </div>
   </div>
 
-  <div class="card p-3 flex justify-between items-center text-xs px-4 bg-slate-900/50">
-    <div class="flex items-center gap-4">
-      <div id="ticker-status" class="font-bold uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-300">AWAITING DATA</div>
-      <div id="ticker-counted" class="text-gray-400">—</div>
-      <div id="ticker-turnout" class="text-gray-400">—</div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="cyber-panel p-3 rounded-lg flex flex-col">
+      <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Pipeline Status</span>
+      <span id="hud-status" class="text-sm font-bold text-yellow-500 font-mono tracking-wide">AWAITING SOURCE DATA</span>
     </div>
-    <div id="ticker-leader" class="flex items-center font-medium text-gray-300">—</div>
+    <div class="cyber-panel p-3 rounded-lg flex flex-col">
+      <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Counted Municipalities</span>
+      <span id="hud-counted" class="text-sm font-bold font-mono text-gray-400">—</span>
+    </div>
+    <div class="cyber-panel p-3 rounded-lg flex flex-col">
+      <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Calculated National Turnout</span>
+      <span id="hud-turnout" class="text-sm font-bold font-mono text-blue-400">—</span>
+    </div>
+    <div class="cyber-panel p-3 rounded-lg flex flex-col">
+      <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Current Frontrunner</span>
+      <span id="hud-leader" class="text-sm font-bold font-mono text-emerald-400">—</span>
+    </div>
   </div>
 
   <div class="grid grid-cols-12 gap-4">
-
-    <div class="col-span-12 lg:col-span-7 space-y-4">
+    
+    <div class="col-span-12 lg:col-span-4 space-y-4">
       
-      <div class="card p-4">
-        <h2 class="text-sm font-bold mb-3 flex justify-between items-center">
-          <span>Hexagonálny kartogram (Okresy / Kraje)</span>
-          <span class="text-xs font-normal text-gray-400">Kliknutím na kraj/okres filtrujete tabuľku</span>
-        </h2>
-        <div id="map" class="min-h-[480px] p-4 flex flex-col gap-4 items-center justify-center text-gray-500 text-xs rounded-xl">
-          Pre aktiváciu mapy a simulácie nahrajte volebný súbor Excel (.xlsx) a Shapefile (.zip) naraz alebo postupne.
+      <div class="cyber-panel p-4 rounded-xl space-y-3">
+        <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold border-b border-gray-800 pb-2">File Parsing Integrity</h2>
+        <div class="text-xs font-mono space-y-2">
+          <div class="flex justify-between items-center bg-gray-900/40 p-2 rounded">
+            <span class="text-gray-400">Excel Votes (.xlsx):</span>
+            <span id="load-xlsx" class="text-red-400 font-bold">Not Loaded</span>
+          </div>
+          <div class="flex justify-between items-center bg-gray-900/40 p-2 rounded">
+            <span class="text-gray-400">Shapefile GIS (.zip):</span>
+            <span id="load-geo" class="text-red-400 font-bold">Not Loaded</span>
+          </div>
+          <div class="flex justify-between items-center bg-gray-900/40 p-2 rounded">
+            <span class="text-gray-400">Matched GIS Corridors:</span>
+            <span id="load-matched" class="text-gray-300 font-bold">0</span>
+          </div>
         </div>
       </div>
 
-      <div class="card p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-        <div>
-          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Poradie sčítavania</label>
-          <select id="order-select" class="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-xs text-gray-200">
-            <option value="rural-first">Najprv vidiek (Rural-first)</option>
-            <option value="urban-first">Najprv mestá (Urban-first)</option>
-            <option value="random">Náhodné priebežné</option>
-          </select>
+      <div class="cyber-panel p-4 rounded-xl space-y-4">
+        <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold border-b border-gray-800 pb-2">Simulation Engine Framework</h2>
+        
+        <div class="space-y-3">
+          <div>
+            <label class="block text-[11px] font-mono text-gray-400 mb-1 uppercase">Reporting Progression Order</label>
+            <select id="sim-order" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs font-mono text-gray-200 focus:border-blue-500 focus:outline-none">
+              <option value="rural-first">Rural-Weighted Vanguard (Rural First)</option>
+              <option value="urban-first">Urban Metropolises Surge (Urban First)</option>
+              <option value="random">Stochastic Distribution (Random Ticker)</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-1 text-[11px] font-mono text-gray-400">
+              <span class="uppercase">Telemetry Speed Index</span>
+              <span id="speed-display" class="text-blue-400 font-bold">10s</span>
+            </div>
+            <input type="range" id="sim-speed" min="3" max="60" step="1" value="10" class="w-full">
+          </div>
         </div>
 
-        <div>
-          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Rýchlosť simulácie: <span id="speed-out" class="font-mono text-blue-400">10s</span></label>
-          <input type="range" id="speed-slider" min="2" max="60" step="1" value="10">
-        </div>
-
-        <div class="flex gap-2 pt-4 md:pt-0">
-          <button id="btn-start" disabled class="flex-1 bg-blue-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed hover:bg-blue-500 text-white font-bold text-xs p-2.5 rounded-lg transition">
-            ▶ Spustiť sčítavanie
+        <div class="flex gap-2 pt-2">
+          <button id="ctrl-start" disabled class="flex-1 bg-blue-600/20 text-blue-400 border border-blue-500/40 disabled:bg-gray-900 disabled:border-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed hover:bg-blue-600/30 text-xs font-mono uppercase font-bold py-2.5 rounded-lg transition-all">
+            Execute Telemetry
           </button>
-          <button id="btn-reset" disabled class="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold text-xs px-3 rounded-lg transition">
-            ⟳ Reset
+          <button id="ctrl-reset" disabled class="bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-300 text-xs font-mono uppercase px-4 rounded-lg transition-all">
+            Reset
           </button>
         </div>
       </div>
 
-      <div class="card p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <div class="flex justify-between items-center mb-1">
-            <span class="text-xs font-bold uppercase text-gray-400">Účasť na vidieku</span>
-            <span id="turnout-rural-out" class="font-mono text-xs font-bold text-emerald-400">—</span>
+      <div class="cyber-panel p-4 rounded-xl space-y-4">
+        <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold border-b border-gray-800 pb-2">Turnout Vector Adjustments</h2>
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between items-center text-[11px] font-mono text-gray-400 mb-1">
+              <span>RURAL AREAS TURNOUT</span>
+              <span id="out-turnout-rural" class="text-emerald-400 font-bold">—</span>
+            </div>
+            <input type="range" id="val-turnout-rural" min="10" max="95" step="1" value="50" class="w-full">
           </div>
-          <input type="range" id="turnout-rural" min="10" max="95" step="1" value="50">
+          <div>
+            <div class="flex justify-between items-center text-[11px] font-mono text-gray-400 mb-1">
+              <span>URBAN / METRO TURNOUT</span>
+              <span id="out-turnout-urban" class="text-blue-400 font-bold">—</span>
+            </div>
+            <input type="range" id="val-turnout-urban" min="10" max="95" step="1" value="65" class="w-full">
+          </div>
         </div>
-        <div>
-          <div class="flex justify-between items-center mb-1">
-            <span class="text-xs font-bold uppercase text-gray-400">Účasť v mestách</span>
-            <span id="turnout-urban-out" class="font-mono text-xs font-bold text-blue-400">—</span>
+      </div>
+
+      <div class="cyber-panel p-4 rounded-xl space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+          <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold">Target National Swings</h2>
+          <div class="flex gap-1.5">
+            <button id="ctrl-shake" disabled class="text-[10px] font-mono bg-blue-500/10 border border-blue-500/20 text-blue-400 px-2 py-0.5 rounded hover:bg-blue-500/20 transition">🎲 Shock</button>
+            <button id="ctrl-clear-swings" disabled class="text-[10px] font-mono bg-gray-800 text-gray-400 px-2 py-0.5 rounded hover:bg-gray-700 transition">Clear</button>
           </div>
-          <input type="range" id="turnout-urban" min="10" max="95" step="1" value="65">
+        </div>
+        <div id="party-controls-box" class="space-y-2.5 max-h-[260px] overflow-y-auto pr-1 text-xs text-gray-500 font-mono italic text-center py-6">
+          Feed Excel dataset to instantiate interactive national swing configurations.
         </div>
       </div>
 
     </div>
 
-    <div class="col-span-12 lg:col-span-5 space-y-4">
+    <div class="col-span-12 lg:col-span-8 space-y-4">
       
-      <div class="card p-4">
-        <h2 class="text-sm font-bold mb-2">Stav importovaných dát</h2>
-        <div id="datasetInfo" class="text-xs text-gray-400 space-y-1">
-          <div class="flex justify-between"><span>Excel výsledky (.xlsx):</span> <span id="status-xlsx" class="text-red-400 font-bold">Nenahré</span></div>
-          <div class="flex justify-between"><span>Geometria / Obce (.zip):</span> <span id="status-geo" class="text-red-400 font-bold">Nenahré</span></div>
-          <div class="flex justify-between"><span>Počet spárovaných obcí:</span> <span id="status-matched" class="font-bold text-gray-300">0</span></div>
+      <div class="cyber-panel p-4 rounded-xl space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+          <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold">District Hexagonal Grid Cartogram Matrix</h2>
+          <span class="text-[10px] font-mono text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">Dynamic Color-Margin Projections Enabled</span>
+        </div>
+        <div id="cartogram-canvas" class="min-h-[460px] flex items-center justify-center text-center text-xs font-mono text-gray-500 p-8 border border-dashed border-gray-800 rounded-lg">
+          Operational system pending file logistics stream. Please load Excel electoral counts and associated Shapefile archive.
         </div>
       </div>
 
-      <div class="card p-4 space-y-3">
-        <h2 class="text-sm font-bold">Národné priebežné výsledky</h2>
+      <div class="cyber-panel p-4 rounded-xl space-y-4">
+        <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold border-b border-gray-800 pb-2">National Scoreboard Breakdown</h2>
         
-        <div id="national-bar" class="w-full h-5 bg-gray-900 rounded-lg overflow-hidden flex border border-gray-800"></div>
+        <div id="national-progressbar" class="w-full h-4 bg-gray-950 rounded border border-gray-800 overflow-hidden flex"></div>
         
-        <div id="national-legend" class="grid grid-cols-2 gap-x-4 max-h-[140px] overflow-y-auto text-xs pr-1"></div>
+        <div id="national-legend-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs font-mono"></div>
       </div>
 
-      <div class="card p-4 space-y-3">
-        <div class="flex justify-between items-center">
-          <h2 class="text-sm font-bold">Rozdelenie mandátov (D'Hondt, 5%)</h2>
-          <span id="seat-total" class="text-[11px] text-gray-400 font-mono">150 kresiel</span>
+      <div class="cyber-panel p-4 rounded-xl space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+          <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold">National Council Seats (D'Hondt 5% Threshold)</h2>
+          <span class="text-[11px] font-mono text-gray-400" id="mandate-hud-limit">150 Seats · 76 Needed for Majority</span>
         </div>
-        
-        <div class="flex flex-col md:flex-row gap-4 items-center">
-          <div id="hemicycle-host" class="w-[180px] h-[100px] flex items-center justify-center"></div>
-          <div id="seat-list" class="flex-1 w-full grid grid-cols-2 gap-x-2 text-xs max-h-[100px] overflow-y-auto"></div>
-        </div>
-      </div>
-
-      <div class="card p-4">
-        <div class="flex justify-between items-center mb-2">
-          <h2 class="text-sm font-bold">Modelovanie celonárodného swingu</h2>
-          <div class="flex gap-1">
-            <button id="btn-random" disabled class="text-[10px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/30 transition">🎲 Náhodný šok</button>
-            <button id="btn-reset-parties" disabled class="text-[10px] bg-gray-800 text-gray-300 px-2 py-1 rounded hover:bg-gray-700 transition">Reset</button>
-          </div>
-        </div>
-        <p class="text-[11px] text-gray-400 mb-3">Nastavením cieľa upravíte preferencie rovnomerne naprieč všetkými obcami.</p>
-        
-        <div id="party-controls" class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-          <div class="text-xs text-gray-500 italic text-center py-4">Ačakáva sa načítanie volebných strán...</div>
+        <div class="flex flex-col md:flex-row gap-6 items-center">
+          <div id="parliament-hemicycle" class="w-[220px] h-[110px] flex items-center justify-center bg-gray-950/40 border border-gray-900 rounded-xl p-2"></div>
+          <div id="parliament-list" class="flex-grow w-full grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono"></div>
         </div>
       </div>
 
     </div>
   </div>
 
-  <div class="card p-4 space-y-3" id="panel-table">
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+  <div class="cyber-panel p-4 rounded-xl space-y-4" id="datagrid-anchor">
+    <div class="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 border-b border-gray-800 pb-3">
       <div>
-        <h2 class="text-sm font-bold">Podrobná tabuľka obcí</h2>
-        <span id="table-count" class="text-xs text-gray-400">Zobrazených 0 záznamov</span>
+        <h2 class="text-xs uppercase font-mono tracking-widest text-blue-400 font-bold">Granular Municipal Ledger Data Streams</h2>
+        <p id="datagrid-counter" class="text-[11px] font-mono text-gray-500 mt-0.5">Telemetry matrix empty.</p>
       </div>
-      
-      <div class="flex flex-wrap items-center gap-2 text-xs w-full md:w-auto">
-        <select id="filter-kraj" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200">
-          <option value="ALL">Všetky kraje</option>
-        </select>
-        
-        <select id="filter-type" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200">
-          <option value="ALL">Mestá aj vidiek</option>
-          <option value="urban">Len mestá</option>
-          <option value="rural">Len vidiek</option>
-        </select>
 
-        <input type="text" id="filter-q" placeholder="Hľadať obec..." class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full md:w-40" />
-
-        <button id="filter-clear" class="bg-gray-800 text-gray-300 hover:bg-gray-700 p-1.5 rounded transition">Vyčistiť</button>
+      <div class="flex flex-wrap items-center gap-2 text-xs font-mono w-full xl:w-auto">
+        <select id="grid-filter-kraj" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200 focus:border-blue-500 focus:outline-none">
+          <option value="ALL">All Regions (Kraje)</option>
+        </select>
+        <select id="grid-filter-type" class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200 focus:border-blue-500 focus:outline-none">
+          <option value="ALL">All Environments</option>
+          <option value="urban">Urban Centric</option>
+          <option value="rural">Rural Centric</option>
+        </select>
+        <input type="text" id="grid-filter-search" placeholder="Search municipality name..." 
+          class="bg-gray-900 border border-gray-700 rounded p-1.5 text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none w-full sm:w-48" />
+        <button id="grid-filter-reset" class="bg-gray-800 border border-gray-700 text-gray-400 hover:text-white px-3 py-1.5 rounded transition">Clear Logs</button>
       </div>
     </div>
 
-    <div class="muni-table-wrapper rounded-lg border border-gray-800">
+    <div class="muni-table-container rounded-lg bg-gray-950/60">
       <table>
         <thead>
           <tr>
-            <th>Názov obce</th>
-            <th>Okres</th>
-            <th>Typ</th>
-            <th class="num">Voliči spolu</th>
-            <th class="num">Odovzdané</th>
-            <th class="num">Účasť</th>
-            <th>Víťaz v obci</th>
+            <th>Municipal Domain Name</th>
+            <th>District (Okres)</th>
+            <th>Topology</th>
+            <th class="text-right">Registered</th>
+            <th class="text-right">Cast Envelopes</th>
+            <th class="text-right">Turnout %</th>
+            <th>Frontrunner Vector</th>
           </tr>
         </thead>
-        <tbody id="muni-tbody" class="text-xs">
+        <tbody id="muni-table-rows" class="font-mono">
           <tr>
-            <td colspan="7" class="text-center py-8 text-gray-500 italic">Dáta nie sú načítané. Použite vrchný upload pre vloženie dát.</td>
+            <td colspan="7" class="text-center py-12 text-gray-500 italic">No historical matrix loaded. Feed system logs at top input.</td>
           </tr>
         </tbody>
       </table>
@@ -243,34 +251,33 @@
 
 <script>
 /* =========================================================
-   1. GLOBAL ENGINE CONFIGS & STORES (Dynamic Sources)
+   1. GLOBAL STATE DATA ARRAYS & CONFIGURATION
 ========================================================= */
 let PARTIES = [];
 let MUNICIPALITIES = [];
 let REGIONS = [];
 
-const TYPE_AVG_TURNOUT = { rural: 0, urban: 0 };
-const NATIONAL_BASELINE = {};
-const OKRES_INDEX = {};
+const VECTOR_BASELINE_TURNOUT = { rural: 0.0, urban: 0.0 };
+const CUMULATIVE_NATIONAL_BASE = {};
+const DISTRICT_CORRIDOR_INDEX = {};
 
-const state = {
-  turnout: { rural: 0.50, urban: 0.65 },
-  partyTargets: {}, 
-  filter: { kraj: 'ALL', okres: null, type: 'ALL', q: '' },
-  sim: { running: false, reported: new Set(), queue: [], timer: null, startedAt: 0, durationMs: 10000, order: 'rural-first', locked: {} },
+const runtimeState = {
+  turnout: { rural: 0.55, urban: 0.68 },
+  partyTargets: {},
+  filters: { kraj: 'ALL', okres: null, type: 'ALL', q: '' },
+  engine: { running: false, tickersCounted: new Set(), queue: [], clock: null, speedMs: 10000, profile: 'rural-first', snapshots: {} }
 };
 
-// Generovanie stabilných farieb pre politické subjekty
-function generatePartyColor(index, total) {
-  const hue = (index * (360 / Math.max(total, 1))) % 360;
-  return `hsl(${hue}, 75%, 50%)`;
+// Generates uniquely distinct thematic hex color profiles for incoming party datasets
+function createUniqueColorProfile(idx, max) {
+  const h = (idx * (360 / Math.max(max, 1))) % 360;
+  return `hsl(${h}, 80%, 45%)`;
 }
 
-function hexToHsl(hex) {
-  // Ošetrenie hsl reťazcov ak prídu priamo
+function processHslStructure(hex) {
   if (hex.startsWith('hsl')) {
-    const parts = hex.match(/\d+/g);
-    return { h: parseInt(parts[0]), s: parseInt(parts[1]), l: parseInt(parts[2]) };
+    const nums = hex.match(/\d+/g);
+    return { h: parseInt(nums[0]), s: parseInt(nums[1]), l: parseInt(nums[2]) };
   }
   let r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -289,769 +296,760 @@ function hexToHsl(hex) {
   return { h, s: s * 100, l: l * 100 };
 }
 
-function hslShade(hex, marginPct) {
-  const c = hexToHsl(hex);
-  const t = Math.min(1, marginPct / 35);
-  const l = c.l * (1 - t * 0.4); 
-  const s = Math.min(100, c.s * (0.8 + t * 0.2));
-  return `hsl(${c.h}, ${s}%, ${l}%)`;
+function computeShadedHex(hex, margin) {
+  const hsl = processHslStructure(hex);
+  const scaling = Math.min(1, margin / 35);
+  const light = hsl.l * (1 - scaling * 0.45);
+  return `hsl(${hsl.h}, ${Math.min(100, hsl.s * (0.85 + scaling * 0.15))}%, ${light}%)`;
 }
 
 /* =========================================================
-   2. RE-INITIALIZE ENGINE STATE UPON DATA LOAD
+   2. RE-INITIALIZE AND ALIGN SIMULATOR LOGISTICS
 ========================================================= */
-function initializeSimulationEngine() {
+function setupSimulatorPipeline() {
   if (MUNICIPALITIES.length === 0 || PARTIES.length === 0) return;
 
-  // 1. Spočítanie mestskej / vidieckej priemernej účasti
-  const acc = { rural: [0, 0], urban: [0, 0] };
-  MUNICIPALITIES.forEach(m => { 
-    acc[m.type][0] += m.baseTurnout; 
-    acc[m.type][1] += 1; 
-  });
-  TYPE_AVG_TURNOUT.rural = acc.rural[1] > 0 ? acc.rural[0] / acc.rural[1] : 0.50;
-  TYPE_AVG_TURNOUT.urban = acc.urban[1] > 0 ? acc.urban[0] / acc.urban[1] : 0.65;
-
-  state.turnout.rural = TYPE_AVG_TURNOUT.rural;
-  state.turnout.urban = TYPE_AVG_TURNOUT.urban;
-
-  // Aktualizácia sliderov účasti
-  $('#turnout-rural').value = Math.round(state.turnout.rural * 100);
-  $('#turnout-urban').value = Math.round(state.turnout.urban * 100);
-  $('#turnout-rural-out').textContent = $('#turnout-rural').value + '%';
-  $('#turnout-urban-out').textContent = $('#turnout-urban').value + '%';
-
-  // 2. Vytvorenie lookup indexov okresov
-  for (let key in OKRES_INDEX) delete OKRES_INDEX[key];
+  // Calculate distinct ecological turnout modes
+  const tally = { rural: [0, 0], urban: [0, 0] };
   MUNICIPALITIES.forEach(m => {
-    if (!OKRES_INDEX[m.okres]) OKRES_INDEX[m.okres] = [];
-    OKRES_INDEX[m.okres].push(m);
+    tally[m.type][0] += m.baseTurnout;
+    tally[m.type][1] += 1;
   });
+  VECTOR_BASELINE_TURNOUT.rural = tally.rural[1] > 0 ? tally.rural[0] / tally.rural[1] : 0.55;
+  VECTOR_BASELINE_TURNOUT.urban = tally.urban[1] > 0 ? tally.urban[0] / tally.urban[1] : 0.68;
 
-  // 3. Celonárodný baseline strán weighted podielom
-  let totalVotes = 0;
-  const partySums = {}; PARTIES.forEach(p => partySums[p.id] = 0);
+  runtimeState.turnout.rural = VECTOR_BASELINE_TURNOUT.rural;
+  runtimeState.turnout.urban = VECTOR_BASELINE_TURNOUT.urban;
+
+  document.getElementById('val-turnout-rural').value = Math.round(runtimeState.turnout.rural * 100);
+  document.getElementById('val-turnout-urban').value = Math.round(runtimeState.turnout.urban * 100);
+  document.getElementById('out-turnout-rural').textContent = document.getElementById('val-turnout-rural').value + '%';
+  document.getElementById('out-turnout-urban').textContent = document.getElementById('val-turnout-urban').value + '%';
+
+  // Build index trees for faster GIS aggregations
+  for (let k in DISTRICT_CORRIDOR_INDEX) delete DISTRICT_CORRIDOR_INDEX[k];
   MUNICIPALITIES.forEach(m => {
-    const votes = m.registeredVoters * m.baseTurnout;
-    totalVotes += votes;
-    PARTIES.forEach(p => { partySums[p.id] += votes * ((m.baseShares[p.id] || 0) / 100); });
-  });
-  PARTIES.forEach(p => { 
-    NATIONAL_BASELINE[p.id] = totalVotes > 0 ? (partySums[p.id] / totalVotes) * 100 : 0; 
-    state.partyTargets[p.id] = NATIONAL_BASELINE[p.id];
+    if (!DISTRICT_CORRIDOR_INDEX[m.okres]) DISTRICT_CORRIDOR_INDEX[m.okres] = [];
+    DISTRICT_CORRIDOR_INDEX[m.okres].push(m);
   });
 
-  // Povolenie ovládacích prvkov
-  $('#btn-start').disabled = false;
-  $('#btn-random').disabled = false;
-  $('#btn-reset-parties').disabled = false;
+  // Extract national weight baselines
+  let totalCalculatedVotes = 0;
+  const temporarySums = {}; PARTIES.forEach(p => temporarySums[p.id] = 0);
+  MUNICIPALITIES.forEach(m => {
+    const projectedWeight = m.registeredVoters * m.baseTurnout;
+    totalCalculatedVotes += projectedWeight;
+    PARTIES.forEach(p => { temporarySums[p.id] += projectedWeight * ((m.baseShares[p.id] || 0) / 100); });
+  });
 
-  // Vybudovanie filtrov
-  const krajSel = $('#filter-kraj');
-  krajSel.innerHTML = '<option value="ALL">Všetky kraje</option>';
+  PARTIES.forEach(p => {
+    CUMULATIVE_NATIONAL_BASE[p.id] = totalCalculatedVotes > 0 ? (temporarySums[p.id] / totalCalculatedVotes) * 100 : 0;
+    runtimeState.partyTargets[p.id] = CUMULATIVE_NATIONAL_BASE[p.id];
+  });
+
+  // Activate controls
+  document.getElementById('ctrl-start').disabled = false;
+  document.getElementById('ctrl-shake').disabled = false;
+  document.getElementById('ctrl-clear-swings').disabled = false;
+
+  // Build Filter dropdown
+  const filterKrajNode = document.getElementById('grid-filter-kraj');
+  filterKrajNode.innerHTML = '<option value="ALL">All Regions (Kraje)</option>';
   REGIONS.forEach(r => {
-    const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.name;
-    krajSel.appendChild(opt);
+    const rowOpt = document.createElement('option');
+    rowOpt.value = r.id; rowOpt.textContent = r.name;
+    filterKrajNode.appendChild(rowOpt);
   });
 
-  buildPartyControls();
-  syncPartyControlsFromState();
-  renderAll();
-  $('#ticker-status').textContent = 'READY';
+  instantiateSwingControls();
+  synchronizeSwingSliders();
+  executeUniversalRender();
+  document.getElementById('hud-status').textContent = 'SYSTEM OPERATIONAL / READY';
 }
 
 /* =========================================================
-   3. SIMULATION LOGIC CORE
+   3. SWING LOGICS & MATHEMATICAL ALLOCATION MATRIX
 ========================================================= */
-function normalisedTargets() {
-  const sum = PARTIES.reduce((s, p) => s + Math.max(0, state.partyTargets[p.id]), 0) || 1;
-  const out = {};
-  PARTIES.forEach(p => { out[p.id] = (Math.max(0, state.partyTargets[p.id]) / sum) * 100; });
-  return out;
+function retrieveProportionalTargets() {
+  const sum = PARTIES.reduce((acc, p) => acc + Math.max(0, runtimeState.partyTargets[p.id]), 0) || 1;
+  const map = {};
+  PARTIES.forEach(p => { map[p.id] = (Math.max(0, runtimeState.partyTargets[p.id]) / sum) * 100; });
+  return map;
 }
 
-function swingDeltas() {
-  const targets = normalisedTargets();
-  const d = {};
-  PARTIES.forEach(p => { d[p.id] = targets[p.id] - NATIONAL_BASELINE[p.id]; });
-  return d;
+function calculateSwingDeltas() {
+  const targets = retrieveProportionalTargets();
+  const deviations = {};
+  PARTIES.forEach(p => { deviations[p.id] = targets[p.id] - CUMULATIVE_NATIONAL_BASE[p.id]; });
+  return deviations;
 }
 
-function computeMuniResult(m, deltas) {
-  let shares = PARTIES.map(p => Math.max(0, (m.baseShares[p.id] || 0) + deltas[p.id]));
-  const sum = shares.reduce((a, b) => a + b, 0) || 1;
-  shares = shares.map(v => (v / sum) * 100);
+function computeElectoralLogistics(m, deltas) {
+  let relativeShares = PARTIES.map(p => Math.max(0, (m.baseShares[p.id] || 0) + deltas[p.id]));
+  const summation = relativeShares.reduce((a, b) => a + b, 0) || 1;
+  relativeShares = relativeShares.map(val => (val / summation) * 100);
 
-  const avgTurnout = TYPE_AVG_TURNOUT[m.type] || 0.6;
-  const turnoutMultiplier = avgTurnout > 0 ? state.turnout[m.type] / avgTurnout : 1;
-  let votesCast = Math.round(m.registeredVoters * m.baseTurnout * turnoutMultiplier);
-  votesCast = Math.min(votesCast, m.registeredVoters);
-  votesCast = Math.max(votesCast, 0);
+  const referenceTurnout = VECTOR_BASELINE_TURNOUT[m.type] || 0.6;
+  const varianceShift = referenceTurnout > 0 ? runtimeState.turnout[m.type] / referenceTurnout : 1;
+  let absoluteVotes = Math.round(m.registeredVoters * m.baseTurnout * varianceShift);
+  absoluteVotes = Math.max(0, Math.min(absoluteVotes, m.registeredVoters));
 
-  const votes = {};
-  PARTIES.forEach((p, i) => { votes[p.id] = Math.round(votesCast * (shares[i] / 100)); });
+  const distribution = {};
+  PARTIES.forEach((p, index) => { distribution[p.id] = Math.round(absoluteVotes * (relativeShares[index] / 100)); });
 
-  return { votesCast, votes, shares: Object.fromEntries(PARTIES.map((p, i) => [p.id, shares[i]])) };
+  return { votesCast: absoluteVotes, votes: distribution, shares: Object.fromEntries(PARTIES.map((p, idx) => [p.id, relativeShares[idx]])) };
 }
 
-function winnerOf(votes) {
-  let best = null, bestV = -1, secondV = -1;
+function deriveTopPerformance(votesMap) {
+  let primaryParty = null, maximalVotes = -1, secondaryVotes = -1;
   PARTIES.forEach(p => {
-    const v = votes[p.id] || 0;
-    if (v > bestV) { secondV = bestV; bestV = v; best = p.id; }
-    else if (v > secondV) { secondV = v; }
+    const quantity = votesMap[p.id] || 0;
+    if (quantity > maximalVotes) { secondaryVotes = maximalVotes; maximalVotes = quantity; primaryParty = p.id; }
+    else if (quantity > secondaryVotes) { secondaryVotes = quantity; }
   });
-  const total = PARTIES.reduce((s, p) => s + (votes[p.id] || 0), 0) || 1;
-  const margin = ((bestV - Math.max(secondV, 0)) / total) * 100;
-  return { party: best, margin };
+  const totalPool = PARTIES.reduce((acc, p) => acc + (votesMap[p.id] || 0), 0) || 1;
+  const spreadMargin = ((maximalVotes - Math.max(secondaryVotes, 0)) / totalPool) * 100;
+  return { party: primaryParty, margin: spreadMargin };
 }
 
-function dhondt(votesByParty, seats = 150, thresholdFrac = 0.05) {
-  const total = PARTIES.reduce((s, p) => s + (votesByParty[p.id] || 0), 0) || 1;
-  const eligible = PARTIES.filter(p => ((votesByParty[p.id] || 0) / total) >= thresholdFrac);
-  const counts = {}; PARTIES.forEach(p => counts[p.id] = 0);
-  const quotients = [];
-  eligible.forEach(p => {
-    for (let d = 1; d <= seats; d++) {
-      quotients.push({ id: p.id, q: (votesByParty[p.id] || 0) / d });
+function runDHondtAllocation(partyAggregateVotes, seatCount = 150, entryThreshold = 0.05) {
+  const absoluteTotal = PARTIES.reduce((acc, p) => acc + (partyAggregateVotes[p.id] || 0), 0) || 1;
+  const verifiedContenders = PARTIES.filter(p => ((partyAggregateVotes[p.id] || 0) / absoluteTotal) >= entryThreshold);
+  const seatsAwarded = {}; PARTIES.forEach(p => seatsAwarded[p.id] = 0);
+  
+  const computationTable = [];
+  verifiedContenders.forEach(p => {
+    for (let divisor = 1; divisor <= seatCount; divisor++) {
+      computationTable.push({ id: p.id, quotient: (partyAggregateVotes[p.id] || 0) / divisor });
     }
   });
-  quotients.sort((a, b) => b.q - a.q);
-  for (let i = 0; i < seats && i < quotients.length; i++) {
-    if (quotients[i]) counts[quotients[i].id]++;
-  }
-  return counts;
-}
 
-function randomizeParties() {
-  const r = Math.random;
-  PARTIES.forEach(p => {
-    const mode = r();
-    let factor = (mode < 0.15) ? 0.35 + r()*0.35 : (mode < 0.3) ? 1.4 + r()*0.8 : 0.8 + r()*0.4;
-    state.partyTargets[p.id] = Math.max(0.1, NATIONAL_BASELINE[p.id] * factor + (r() - 0.5) * 2);
-  });
-  syncPartyControlsFromState();
-  renderAll();
+  computationTable.sort((a, b) => b.quotient - a.quotient);
+  for (let rank = 0; rank < seatCount && rank < computationTable.length; rank++) {
+    if (computationTable[rank]) seatsAwarded[computationTable[rank].id]++;
+  }
+  return seatsAwarded;
 }
 
 /* =========================================================
-   4. FILE IMPORT PIPELINE & DATA PARSING
+   4. FILE INGESTION PIPELINE (DYNAMIC MAPPING)
 ========================================================= */
-const DatasetStore = { geometry: null, votes: null };
+const CentralStorage = { matrixGeo: null, matrixVotes: null };
 
-const XLSXAdapter = {
-  parse(buffer) {
-    const wb = XLSX.read(buffer, { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
-    if (rows.length === 0) return null;
+const ElectoralExcelReader = {
+  extract(arrayBuffer) {
+    const workbook = XLSX.read(arrayBuffer, { type: "array" });
+    const targetSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const dataRows = XLSX.utils.sheet_to_json(targetSheet);
+    if (dataRows.length === 0) return null;
 
-    // Dynamická detekcia stĺpcov politických strán
-    const firstRow = rows[0];
-    const rawKeys = Object.keys(firstRow);
+    const leadRow = dataRows[0];
+    const columnKeys = Object.keys(leadRow);
     
-    // Nájdeme kľúče, ktoré reprezentujú počty platných hlasov pre strany
-    const countPrefix = "Počet platných hlasov\nza ";
-    const sharePrefix = "Podiel platných hlasov v %\nza ";
+    const tokenCount = "Počet platných hlasov\nza ";
+    const tokenShare = "Podiel platných hlasov v %\nza ";
     
-    // Zistíme zoznam všetkých strán v dokumente
-    const detectedParties = [];
-    rawKeys.forEach(k => {
-      if (k.startsWith(countPrefix)) {
-        const partyName = k.replace(countPrefix, "").trim();
-        const shareKey = rawKeys.find(sk => sk.startsWith(sharePrefix) && sk.includes(partyName));
-        detectedParties.push({ name: partyName, countKey: k, shareKey: shareKey });
+    const uniqueIdentifiers = [];
+    columnKeys.forEach(k => {
+      if (k.startsWith(tokenCount)) {
+        const structuralName = k.replace(tokenCount, "").trim();
+        const pairedShareKey = columnKeys.find(sk => sk.startsWith(tokenShare) && sk.includes(structuralName));
+        uniqueIdentifiers.push({ name: structuralName, countKey: k, shareKey: pairedShareKey });
       }
     });
 
-    // Transformácia do globálnej štruktúry PARTIES
-    PARTIES = detectedParties.map((p, idx) => ({
-      id: "p_" + idx,
+    PARTIES = uniqueIdentifiers.map((p, position) => ({
+      id: "pt_" + position,
       name: p.name,
-      short: p.name.substring(0, 10),
-      color: generatePartyColor(idx, detectedParties.length),
-      base: 0,
+      short: p.name.length > 12 ? p.name.substring(0, 11) + "..." : p.name,
+      color: createUniqueColorProfile(position, uniqueIdentifiers.length),
       countKey: p.countKey,
       shareKey: p.shareKey
     }));
 
-    return rows;
+    return dataRows;
   }
 };
 
-const ShapefileAdapter = {
-  async parse(file) {
-    const buffer = await file.arrayBuffer();
-    const geo = await shp(buffer);
-    const features = geo?.features || geo?.[0]?.features || geo.features || [];
-    return features.map(f => ({
-      id: String(f.properties?.IDN4 || "").trim(),
-      name: f.properties?.NM4,
-      okres: f.properties?.NM3,
-      kraj: f.properties?.NM2,
-      vymera: f.properties?.VYMERA || f.properties?.Shape_Area || 10000000
+const StructuralGeoReader = {
+  async processZip(fileObject) {
+    const rawBuffer = await fileObject.arrayBuffer();
+    const geoJSON = await shp(rawBuffer);
+    const geometryFeatures = geoJSON?.features || geoJSON?.[0]?.features || [];
+    return geometryFeatures.map(feat => ({
+      id: String(feat.properties?.IDN4 || "").trim(),
+      name: feat.properties?.NM4,
+      okres: feat.properties?.NM3,
+      kraj: feat.properties?.NM2,
+      dimension: feat.properties?.VYMERA || feat.properties?.Shape_Area || 5000000
     }));
   }
 };
 
-async function loadFile(file) {
-  const ext = file.name.split(".").pop().toLowerCase();
-  const buffer = await file.arrayBuffer();
+async function handleFilePipeline(file) {
+  const extension = file.name.split(".").pop().toLowerCase();
 
-  if (ext === "xlsx") {
-    DatasetStore.votes = XLSXAdapter.parse(buffer);
-    document.getElementById("status-xlsx").textContent = "Načítané (" + DatasetStore.votes.length + " obcí)";
-    document.getElementById("status-xlsx").className = "text-emerald-400 font-bold";
+  if (extension === "xlsx") {
+    CentralStorage.matrixVotes = ElectoralExcelReader.extract(await file.arrayBuffer());
+    document.getElementById("load-xlsx").textContent = "Loaded (" + CentralStorage.matrixVotes.length + " entries)";
+    document.getElementById("load-xlsx").className = "text-emerald-400 font-bold font-mono";
   }
-  if (ext === "zip") {
-    DatasetStore.geometry = await ShapefileAdapter.parse(file);
-    document.getElementById("status-geo").textContent = "Načítané (" + DatasetStore.geometry.length + " hraníc)";
-    document.getElementById("status-geo").className = "text-emerald-400 font-bold";
+  if (extension === "zip") {
+    CentralStorage.matrixGeo = await StructuralGeoReader.processZip(file);
+    document.getElementById("load-geo").textContent = "Loaded (" + CentralStorage.matrixGeo.length + " vectors)";
+    document.getElementById("load-geo").className = "text-emerald-400 font-bold font-mono";
   }
 
-  // Ak máme oba datasety, spárujeme ich do štruktúry pre engine
-  if (DatasetStore.votes && DatasetStore.geometry) {
-    matchAndBuildDatasets();
-  } else if (DatasetStore.votes && !DatasetStore.geometry) {
-    // Ak máme aspoň excel dáta, vytvoríme aspoň základnú tabuľku
-    buildDatasetFromExcelOnly();
+  if (CentralStorage.matrixVotes && CentralStorage.matrixGeo) {
+    executeUnifiedDataBinding();
+  } else if (CentralStorage.matrixVotes) {
+    generateSystemFallbackExcelOnly();
   }
 }
 
-function matchAndBuildDatasets() {
+function executeUnifiedDataBinding() {
   MUNICIPALITIES = [];
-  const geoMap = new Map();
-  DatasetStore.geometry.forEach(g => geoMap.set(String(g.id), g));
+  const geoLookupTable = new Map();
+  CentralStorage.matrixGeo.forEach(g => geoLookupTable.set(String(g.id), g));
 
-  let matchedCount = 0;
-  
-  // Agregátory pre dynamické budovanie krajov a okresov
-  const krajeSet = new Map();
+  let matchedIdentities = 0;
+  const structuralKraje = new Map();
 
-  DatasetStore.votes.forEach((v, idx) => {
-    const excelMuniCode = String(v["Kód obce"] || "").trim();
-    const geoInfo = geoMap.get(excelMuniCode);
+  CentralStorage.matrixVotes.forEach((v, index) => {
+    const coreMuniCode = String(v["Kód obce"] || "").trim();
+    const correlatedGeo = geoLookupTable.get(coreMuniCode);
 
-    const registered = v["Počet zapísaných voličov"] || v["Voliči zapísaní v zozname"] || Math.round((v["Počet platných hlasov spolu"] || 100) * 1.4);
-    const cast = v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 80;
-    const turnout = registered > 0 ? (cast / registered) : 0.6;
+    const registers = parseInt(v["Počet zapísaných voličov"] || v["Voliči zapísaní v zozname"] || 800);
+    const envelopes = parseInt(v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 500);
+    const computedTurnout = registers > 0 ? (envelopes / registers) : 0.62;
 
-    // Výpočet podielov jednotlivých strán v tejto konkrétnej obci
     const baseShares = {};
     PARTIES.forEach(p => {
-      let shareValue = 0;
+      let segmentShare = 0;
       if (p.shareKey && v[p.shareKey] !== undefined) {
-        shareValue = parseFloat(v[p.shareKey]);
+        segmentShare = parseFloat(v[p.shareKey]);
       } else if (p.countKey && v[p.countKey] !== undefined) {
-        shareValue = (v[p.countKey] / (v["Počet platných hlasov spolu"] || 1)) * 100;
+        segmentShare = (parseInt(v[p.countKey] || 0) / (parseInt(v["Počet platných hlasov spolu"]) || 1)) * 100;
       }
-      baseShares[p.id] = isNaN(shareValue) ? 0 : shareValue;
+      baseShares[p.id] = isNaN(segmentShare) ? 0 : segmentShare;
     });
 
-    const krajName = geoInfo ? geoInfo.kraj : (v["Názov kraja"] || "Neznámy kraj");
-    const okresName = geoInfo ? geoInfo.okres : (v["Názov okresu"] || "Neznámy okres");
-    const muniName = geoInfo ? geoInfo.name : (v["Názov obce"] || "Neznáma obec");
-    
-    // Jednoduchá heuristika vidiek/mesto: Ak má obec v názve "Mesto" alebo rozlohu vs voličov nad limit
-    const isUrban = muniName.toLowerCase().includes("mesto") || (geoInfo && (registered / (geoInfo.vymera / 1000000)) > 250) || registered > 5000;
-    const type = isUrban ? "urban" : "rural";
+    const regionString = correlatedGeo ? correlatedGeo.kraj : (v["Názov kraja"] || "Slovakia Region");
+    const districtString = correlatedGeo ? correlatedGeo.okres : (v["Názov okresu"] || "Slovakia District");
+    const domainString = correlatedGeo ? correlatedGeo.name : (v["Názov obce"] || "Domain Cluster");
 
-    if (geoInfo) matchedCount++;
+    const isMetropolitan = domainString.toLowerCase().includes("mesto") || registers > 4500;
+    const environmentType = isMetropolitan ? "urban" : "rural";
 
-    const muniObject = {
-      id: excelMuniCode || "m_" + idx,
-      name: muniName,
-      okres: okresName,
-      kraj: krajName,
-      type: type,
-      registeredVoters: registered,
-      baseTurnout: turnout,
-      baseShares: baseShares
-    };
-
-    MUNICIPALITIES.push(muniObject);
-
-    // Zbieranie do zoznamu hierarchie pre kartogram
-    if (!krajeSet.has(krajName)) {
-      krajeSet.set(krajName, new Set());
-    }
-    krajeSet.get(krajName).add(okresName);
-  });
-
-  document.getElementById("status-matched").textContent = matchedCount + " z " + MUNICIPALITIES.length;
-
-  // Vybudovanie REGIONS poľa pre rendering hex-mapy
-  REGIONS = [];
-  krajeSet.forEach((okresySet, krajName) => {
-    REGIONS.push({
-      id: krajName.substring(0, 4).toUpperCase().replace("SÝ", "S"),
-      name: krajName,
-      okresy: Array.from(okresySet)
-    });
-  });
-
-  initializeSimulationEngine();
-}
-
-function buildDatasetFromExcelOnly() {
-  // Ak užívateľ nemá shapefile, vygenerujeme simuláciu priamo z Excelu
-  MUNICIPALITIES = [];
-  const krajeSet = new Map();
-
-  DatasetStore.votes.forEach((v, idx) => {
-    const registered = parseInt(v["Počet zapísaných voličov"] || 1000);
-    const cast = parseInt(v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 700);
-    const turnout = registered > 0 ? (cast / registered) : 0.65;
-
-    const baseShares = {};
-    PARTIES.forEach(p => {
-      let val = p.shareKey ? parseFloat(v[p.shareKey]) : ((v[p.countKey] || 0) / (v["Počet platných hlasov spolu"] || 1)) * 100;
-      baseShares[p.id] = isNaN(val) ? 0 : val;
-    });
-
-    const krajName = v["Názov kraja"] || "SR Kraj";
-    const okresName = v["Názov okresu"] || "SR Okres";
-    const type = registered > 4000 ? "urban" : "rural";
+    if (correlatedGeo) matchedIdentities++;
 
     MUNICIPALITIES.push({
-      id: String(v["Kód obce"] || idx),
-      name: v["Názov obce"] || "Obec",
-      okres: okresName,
-      kraj: krajName,
-      type: type,
-      registeredVoters: registered,
-      baseTurnout: turnout,
+      id: coreMuniCode || "synthetic_" + index,
+      name: domainString,
+      okres: districtString,
+      kraj: regionString,
+      type: environmentType,
+      registeredVoters: registers,
+      baseTurnout: computedTurnout,
       baseShares: baseShares
     });
 
-    if (!krajeSet.has(krajName)) krajeSet.set(krajName, new Set());
-    krajeSet.get(krajName).add(okresName);
+    if (!structuralKraje.has(regionString)) {
+      structuralKraje.set(regionString, new Set());
+    }
+    structuralKraje.get(regionString).add(districtString);
+  });
+
+  document.getElementById("load-matched").textContent = matchedIdentities + " / " + MUNICIPALITIES.length;
+
+  REGIONS = [];
+  structuralKraje.forEach((districtsSet, regionTitle) => {
+    REGIONS.push({
+      id: regionTitle.substring(0, 4).toUpperCase().replace("SÝ", "S"),
+      name: regionTitle,
+      okresy: Array.from(districtsSet)
+    });
+  });
+
+  setupSimulatorPipeline();
+}
+
+function generateSystemFallbackExcelOnly() {
+  MUNICIPALITIES = [];
+  const regionalTree = new Map();
+
+  CentralStorage.matrixVotes.forEach((v, idx) => {
+    const totalReg = parseInt(v["Počet zapísaných voličov"] || 1000);
+    const absoluteEnv = parseInt(v["Počet odovzdaných obálok"] || v["Počet platných hlasov spolu"] || 650);
+    const turnoutRatio = totalReg > 0 ? (absoluteEnv / totalReg) : 0.65;
+
+    const baseShares = {};
+    PARTIES.forEach(p => {
+      let valueCalculated = p.shareKey ? parseFloat(v[p.shareKey]) : ((parseInt(v[p.countKey] || 0) / (parseInt(v["Počet platných hlasov spolu"]) || 1)) * 100);
+      baseShares[p.id] = isNaN(valueCalculated) ? 0 : valueCalculated;
+    });
+
+    const assignedKraj = v["Názov kraja"] || "SR Matrix Hub";
+    const assignedOkres = v["Názov okresu"] || "SR Cluster Zone";
+    const topology = totalReg > 4000 ? "urban" : "rural";
+
+    MUNICIPALITIES.push({
+      id: String(v["Kód obce"] || "gen_" + idx),
+      name: v["Názov obce"] || "Municipal Sector",
+      okres: assignedOkres,
+      kraj: assignedKraj,
+      type: topology,
+      registeredVoters: totalReg,
+      baseTurnout: turnoutRatio,
+      baseShares: baseShares
+    });
+
+    if (!regionalTree.has(assignedKraj)) regionalTree.set(assignedKraj, new Set());
+    regionalTree.get(assignedKraj).add(assignedOkres);
   });
 
   REGIONS = [];
-  krajeSet.forEach((okresy, kraj) => {
-    REGIONS.push({ id: kraj.substring(0,4).toUpperCase(), name: kraj, okresy: Array.from(okresy) });
+  regionalTree.forEach((districts, krajName) => {
+    REGIONS.push({ id: krajName.substring(0, 4).toUpperCase(), name: krajName, okresy: Array.from(districts) });
   });
 
-  initializeSimulationEngine();
+  setupSimulatorPipeline();
 }
 
 /* =========================================================
-   5. RENDER ENGINE (HTML Layout Updates)
+   5. HUD VISUALIZATION RENDERERS (ORIGINAL UI THEME)
 ========================================================= */
-const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-
-function currentMuniResult(m) {
-  if (state.sim.locked[m.id]) return state.sim.locked[m.id];
-  return computeMuniResult(m, swingDeltas());
+function checkMuniReporting(m) {
+  if (!runtimeState.engine.running && runtimeState.engine.tickersCounted.size === 0) return true;
+  return runtimeState.engine.tickersCounted.has(m.id);
 }
 
-function isReported(m) {
-  return !state.sim.running && state.sim.reported.size === 0 ? true : state.sim.reported.has(m.id);
+function retrieveActiveMuniProjection(m) {
+  if (runtimeState.engine.snapshots[m.id]) return runtimeState.engine.snapshots[m.id];
+  return computeElectoralLogistics(m, calculateSwingDeltas());
 }
 
-function aggregateVotes(municipalities) {
-  const votes = {}; PARTIES.forEach(p => votes[p.id] = 0);
-  let total = 0, registered = 0;
-  municipalities.forEach(m => {
-    if (!isReported(m)) return;
-    const r = currentMuniResult(m);
-    PARTIES.forEach(p => votes[p.id] += r.votes[p.id] || 0);
-    total += r.votesCast;
-    registered += m.registeredVoters;
-  });
-  return { votes, total, registered };
-}
-
-function renderMap() {
-  const container = $('#map');
-  if (REGIONS.length === 0) return;
-  container.innerHTML = '';
+function computeAggregatedCluster(subsetList) {
+  const absoluteVotes = {}; PARTIES.forEach(p => absoluteVotes[p.id] = 0);
+  let aggregatedCast = 0, aggregatedRegistered = 0;
   
-  // Prepnutie flex gridu namiesto prazdneho stavu
-  container.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 w-full bg-slate-950 p-4 rounded-xl";
+  subsetList.forEach(m => {
+    if (!checkMuniReporting(m)) return;
+    const computedData = retrieveActiveMuniProjection(m);
+    PARTIES.forEach(p => absoluteVotes[p.id] += computedData.votes[p.id] || 0);
+    aggregatedCast += computedData.votesCast;
+    aggregatedRegistered += m.registeredVoters;
+  });
+  return { votes: absoluteVotes, total: aggregatedCast, registered: aggregatedRegistered };
+}
 
-  REGIONS.forEach(region => {
-    const box = document.createElement('div');
-    box.className = 'kraj-box';
-    box.dataset.kraj = region.id;
+function renderCartogramLayout() {
+  const targetCanvas = document.getElementById('cartogram-canvas');
+  if (REGIONS.length === 0) return;
+  
+  targetCanvas.innerHTML = '';
+  targetCanvas.className = "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 w-full bg-gray-950/60 p-4 rounded-xl border border-gray-800";
 
-    const label = document.createElement('div');
-    label.className = 'kraj-label';
-    label.textContent = region.name;
-    box.appendChild(label);
+  REGIONS.forEach(reg => {
+    const sectionBox = document.createElement('div');
+    sectionBox.className = 'cyber-panel p-3 rounded-lg border border-gray-800/80 bg-gray-900/40 cursor-pointer transition-all duration-200';
+    if (runtimeState.filters.kraj === reg.id) sectionBox.style.borderColor = '#3b82f6';
 
-    const hexWrap = document.createElement('div');
-    hexWrap.className = 'hex-wrap';
+    const headerLabel = document.createElement('div');
+    headerLabel.className = 'text-[11px] font-mono font-bold text-gray-500 mb-2 uppercase tracking-wide border-b border-gray-800/40 pb-1';
+    headerLabel.textContent = reg.name;
+    sectionBox.appendChild(headerLabel);
 
-    region.okresy.forEach(okresName => {
-      const munis = OKRES_INDEX[okresName] || [];
-      const { votes, total } = aggregateVotes(munis);
-      const hex = document.createElement('div');
-      hex.className = 'hex';
-      hex.dataset.okres = okresName;
-      hex.title = okresName;
+    const internalHexWrap = document.createElement('div');
+    internalHexWrap.className = 'hex-grid';
 
-      if (total === 0) {
-        hex.classList.add('pending');
-        hex.style.background = '#1e293b';
+    reg.okresy.forEach(okresName => {
+      const localizedMunis = DISTRICT_CORRIDOR_INDEX[okresName] || [];
+      const stats = computeAggregatedCluster(localizedMunis);
+      
+      const node = document.createElement('div');
+      node.className = 'hex-node';
+      node.title = `${okresName} Cluster`;
+
+      if (stats.total === 0) {
+        node.style.backgroundColor = '#1f2937';
+        node.style.color = '#4b5563';
+        node.innerHTML = `<span>0%</span>`;
       } else {
-        const w = winnerOf(votes);
-        const party = PARTIES.find(p => p.id === w.party);
-        if (party) {
-          hex.style.background = hslShade(party.color, w.margin);
+        const leaderObj = deriveTopPerformance(stats.votes);
+        const winningParty = PARTIES.find(p => p.id === leaderObj.party);
+        if (winningParty) {
+          node.style.backgroundColor = computeShadedHex(winningParty.color, leaderObj.margin);
         } else {
-          hex.style.background = '#334155';
+          node.style.backgroundColor = '#374151';
         }
-        if (state.sim.running && [...munis].some(m => state.sim.reported.has(m.id)) && !munis.every(m => isReported(m))) {
-          hex.classList.add('partial');
+        
+        const countRatio = localizedMunis.filter(checkMuniReporting).length;
+        const completePct = Math.round((countRatio / localizedMunis.length) * 100);
+        node.innerHTML = `<span class="text-[9px] text-white">${completePct}%</span>`;
+        
+        if (runtimeState.engine.running && countRatio > 0 && countRatio < localizedMunis.length) {
+          node.classList.add('reporting');
         }
       }
-      const rep = munis.filter(isReported).length;
-      hex.innerHTML = `<span class="hex-pct">${munis.length > 0 ? Math.round((rep / munis.length) * 100) : 0}%</span>`;
-      hex.addEventListener('click', (e) => { e.stopPropagation(); openOkresDetail(okresName); });
-      hexWrap.appendChild(hex);
+
+      node.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        triggerLocalizedDistrictFocus(okresName, reg.id);
+      });
+      
+      internalHexWrap.appendChild(node);
     });
 
-    box.appendChild(hexWrap);
-    box.addEventListener('click', () => setFilterKraj(region.id));
-    container.appendChild(box);
+    sectionBox.appendChild(internalHexWrap);
+    sectionBox.addEventListener('click', () => triggerKrajToggle(reg.id));
+    targetCanvas.appendChild(sectionBox);
   });
 }
 
-function openOkresDetail(okresName) {
-  state.filter.okres = okresName;
-  const sampleMuni = MUNICIPALITIES.find(m => m.okres === okresName);
-  state.filter.kraj = sampleMuni ? REGIONS.find(r => r.name === sampleMuni.kraj)?.id || 'ALL' : 'ALL';
-  $('#filter-kraj').value = state.filter.kraj;
-  renderTable();
-  $('#panel-table').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+function triggerLocalizedDistrictFocus(okresName, krajId) {
+  runtimeState.filters.okres = okresName;
+  runtimeState.filters.kraj = krajId;
+  document.getElementById('grid-filter-kraj').value = krajId;
+  renderGranularTableRows();
+  document.getElementById('datagrid-anchor').scrollIntoView({ behavior: 'smooth' });
 }
 
-function setFilterKraj(krajId) {
-  state.filter.kraj = state.filter.kraj === krajId ? 'ALL' : krajId;
-  state.filter.okres = null;
-  $('#filter-kraj').value = state.filter.kraj;
-  renderTable();
+function triggerKrajToggle(krajId) {
+  runtimeState.filters.kraj = runtimeState.filters.kraj === krajId ? 'ALL' : krajId;
+  runtimeState.filters.okres = null;
+  document.getElementById('grid-filter-kraj').value = runtimeState.filters.kraj;
+  renderGranularTableRows();
 }
 
-function renderNational() {
+function renderNationalScoreboard() {
   if (MUNICIPALITIES.length === 0) return;
-  const { votes, total, registered } = aggregateVotes(MUNICIPALITIES);
+  const metrics = computeAggregatedCluster(MUNICIPALITIES);
   
-  const pctCounted = MUNICIPALITIES.length > 0 ? (state.sim.reported.size === 0 && !state.sim.running ? 100 : Math.round((state.sim.reported.size / MUNICIPALITIES.length) * 100)) : 0;
+  const progressPercent = MUNICIPALITIES.length > 0 ? 
+    ((runtimeState.engine.tickersCounted.size === 0 && !runtimeState.engine.running) ? 100 : Math.round((runtimeState.engine.tickersCounted.size / MUNICIPALITIES.length) * 100)) : 0;
 
-  const bar = $('#national-bar'); bar.innerHTML = '';
-  const sorted = [...PARTIES].sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0));
+  const barNode = document.getElementById('national-progressbar'); 
+  barNode.innerHTML = '';
+  const sequencedParties = [...PARTIES].sort((a, b) => (metrics.votes[b.id] || 0) - (metrics.votes[a.id] || 0));
   
-  sorted.forEach(p => {
-    const pct = total ? ((votes[p.id] || 0) / total) * 100 : 0;
-    if (pct > 0.5) { // nezobrazujeme mikrosegmenty pod 0.5% v grafe pre prehladnost
-      const seg = document.createElement('div');
-      seg.className = 'bar-seg';
-      seg.style.width = pct + '%';
-      seg.style.background = p.color;
-      seg.title = `${p.short}: ${pct.toFixed(1)}%`;
-      bar.appendChild(seg);
+  sequencedParties.forEach(p => {
+    const fraction = metrics.total ? ((metrics.votes[p.id] || 0) / metrics.total) * 100 : 0;
+    if (fraction > 0.4) {
+      const Segment = document.createElement('div');
+      Segment.className = 'h-full transition-all duration-300';
+      Segment.style.width = fraction + '%';
+      Segment.style.backgroundColor = p.color;
+      Segment.title = `${p.name}: ${fraction.toFixed(1)}%`;
+      barNode.appendChild(Segment);
     }
   });
 
-  const legend = $('#national-legend'); legend.innerHTML = '';
-  sorted.forEach(p => {
-    const pct = total ? ((votes[p.id] || 0) / total) * 100 : 0;
-    const row = document.createElement('div');
-    row.className = 'legend-row';
-    row.innerHTML = `<div><span class="swatch" style="background:${p.color}"></span>
-      <span class="legend-name font-medium">${p.short}</span></div>
-      <span class="legend-pct text-gray-200">${pct.toFixed(2)}%</span>`;
-    legend.appendChild(row);
+  const legendContainer = document.getElementById('national-legend-grid'); 
+  legendContainer.innerHTML = '';
+  
+  sequencedParties.forEach(p => {
+    const fraction = metrics.total ? ((metrics.votes[p.id] || 0) / metrics.total) * 100 : 0;
+    const IndicatorCard = document.createElement('div');
+    IndicatorCard.className = 'bg-gray-900/60 p-2 rounded border border-gray-800 flex justify-between items-center';
+    IndicatorCard.innerHTML = `
+      <div class="truncate mr-1"><span class="inline-block w-2 h-2 rounded-full mr-1.5" style="background:${p.color}"></span><span class="text-gray-300">${p.short}</span></div>
+      <span class="font-bold font-mono text-gray-100">${fraction.toFixed(2)}%</span>
+    `;
+    legendContainer.appendChild(IndicatorCard);
   });
 
-  $('#ticker-counted').textContent = `${pctCounted}% obcí sčítaných`;
-  $('#ticker-turnout').textContent = total && registered ? `Účasť: ${(total / registered * 100).toFixed(1)}%` : 'Účasť: —';
+  document.getElementById('hud-counted').textContent = `${progressPercent}% Metrics Verified`;
+  document.getElementById('hud-turnout').textContent = metrics.total && metrics.registered ? `${((metrics.total / metrics.registered) * 100).toFixed(2)}%` : '—';
   
-  const lead = sorted[0];
-  if (lead && total > 0) {
-    $('#ticker-leader').innerHTML = `<span class="swatch" style="background:${lead.color}"></span> VEDIE: <b>${lead.name}</b>`;
+  const absoluteWinner = sequencedParties[0];
+  if (absoluteWinner && metrics.total > 0) {
+    document.getElementById('hud-leader').innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-2"></span>${absoluteWinner.name}`;
   } else {
-    $('#ticker-leader').textContent = 'Čaká sa na výsledky...';
+    document.getElementById('hud-leader').textContent = '—';
   }
 
-  renderSeats(votes);
+  processSeatMandateCalculations(metrics.votes);
 }
 
-function renderSeats(votes) {
-  const seats = dhondt(votes, 150, 0.05);
-  const order = [...PARTIES].sort((a, b) => seats[b.id] - seats[a.id]);
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('viewBox', '0 0 600 320');
-  svg.setAttribute('class', 'w-full h-full');
+function processSeatMandateCalculations(votesTree) {
+  const allocatedSeats = runDHondtAllocation(votesTree, 150, 0.05);
+  const prioritizedSequence = [...PARTIES].sort((a, b) => allocatedSeats[b.id] - allocatedSeats[a.id]);
+  
+  const xmlns = 'http://www.w3.org/2000/svg';
+  const elementSvg = document.createElementNS(xmlns, 'svg');
+  elementSvg.setAttribute('viewBox', '0 0 600 320');
+  elementSvg.setAttribute('class', 'w-full h-full');
 
-  const seatSeq = [];
-  order.forEach(p => { for (let i = 0; i < seats[p.id]; i++) seatSeq.push(p.color); });
-  while (seatSeq.length < 150) seatSeq.push('#334155');
+  const orderedSeatColours = [];
+  prioritizedSequence.forEach(p => { for (let s = 0; s < allocatedSeats[p.id]; s++) orderedSeatColours.push(p.color); });
+  while (orderedSeatColours.length < 150) orderedSeatColours.push('#1f2937');
 
-  const rows = 8;
-  const rMin = 70, rMax = 270;
-  const radii = Array.from({ length: rows }, (_, i) => rMin + (i * (rMax - rMin)) / (rows - 1));
-  const weights = radii.map(r => r);
-  const wsum = weights.reduce((a, b) => a + b, 0);
-  let counts = weights.map(w => Math.max(4, Math.round((w / wsum) * 150)));
-  let diff = 150 - counts.reduce((a, b) => a + b, 0);
-  counts[counts.length - 1] += diff;
+  const rowsArc = 8;
+  const innerR = 75, outerR = 265;
+  const radiiLayout = Array.from({ length: rowsArc }, (_, idx) => innerR + (idx * (outerR - innerR)) / (rowsArc - 1));
+  const specificWeights = radiiLayout.map(r => r);
+  const totalWeightSum = specificWeights.reduce((a, b) => a + b, 0);
+  
+  let nodeDistribution = specificWeights.map(w => Math.max(4, Math.round((w / totalWeightSum) * 150)));
+  let deltaCorrection = 150 - nodeDistribution.reduce((a, b) => a + b, 0);
+  nodeDistribution[nodeDistribution.length - 1] += deltaCorrection;
 
-  let idx = 0;
-  counts.forEach((cnt, rIdx) => {
-    const r = radii[rIdx];
-    for (let i = 0; i < cnt; i++) {
-      const t = cnt === 1 ? 0.5 : i / (cnt - 1);
-      const angle = Math.PI - t * Math.PI; 
-      const cx = 300 + r * Math.cos(angle);
-      const cy = 300 - r * Math.sin(angle);
-      const c = document.createElementNS(svgNS, 'circle');
-      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 7);
-      c.setAttribute('fill', seatSeq[idx] || '#334155');
-      svg.appendChild(c);
-      idx++;
+  let overallGlobalCounter = 0;
+  nodeDistribution.forEach((capacity, arcRowIdx) => {
+    const currentRadius = radiiLayout[arcRowIdx];
+    for (let currentSeatIdx = 0; currentSeatIdx < capacity; currentSeatIdx++) {
+      const positionRatio = capacity === 1 ? 0.5 : currentSeatIdx / (capacity - 1);
+      const angleRadian = Math.PI - positionRatio * Math.PI;
+      const coordinateX = 300 + currentRadius * Math.cos(angleRadian);
+      const coordinateY = 300 - currentRadius * Math.sin(angleRadian);
+      
+      const nodeCircle = document.createElementNS(xmlns, 'circle');
+      nodeCircle.setAttribute('cx', coordinateX); 
+      nodeCircle.setAttribute('cy', coordinateY); 
+      nodeCircle.setAttribute('r', 6.5);
+      nodeCircle.setAttribute('fill', orderedSeatColours[overallGlobalCounter] || '#1f2937');
+      elementSvg.appendChild(nodeCircle);
+      overallGlobalCounter++;
     }
   });
 
-  const host = $('#hemicycle-host'); host.innerHTML = ''; host.appendChild(svg);
+  const hemicycleContainer = document.getElementById('parliament-hemicycle');
+  hemicycleContainer.innerHTML = ''; hemicycleContainer.appendChild(elementSvg);
 
-  const seatList = $('#seat-list'); seatList.innerHTML = '';
-  order.filter(p => seats[p.id] > 0).forEach(p => {
-    const row = document.createElement('div');
-    row.className = 'legend-row';
-    row.innerHTML = `<div><span class="swatch" style="background:${p.color}"></span><span>${p.short}</span></div>
-      <span class="font-bold text-blue-400 font-mono">${seats[p.id]} m.</span>`;
-    seatList.appendChild(row);
-  });
+  const numericSeatList = document.getElementById('parliament-list'); 
+  numericSeatList.innerHTML = '';
   
-  const majority = 76;
-  $('#seat-total').textContent = `150 kresiel · Väčšina = ${majority}`;
+  prioritizedSequence.filter(p => allocatedSeats[p.id] > 0).forEach(p => {
+    const rowWidget = document.createElement('div');
+    rowWidget.className = 'bg-gray-900/40 p-1.5 px-2.5 rounded border border-gray-800/80 flex justify-between items-center';
+    rowWidget.innerHTML = `
+      <div class="truncate"><span class="inline-block w-2 h-2 rounded-full mr-1.5" style="background:${p.color}"></span><span>${p.short}</span></div>
+      <span class="font-bold text-blue-400 font-mono">${allocatedSeats[p.id]} K</span>
+    `;
+    numericSeatList.appendChild(rowWidget);
+  });
 }
 
-function filteredMunicipalities() {
-  const currentKrajName = state.filter.kraj !== 'ALL' ? REGIONS.find(r => r.id === state.filter.kraj)?.name : null;
-  return MUNICIPALITIES.filter(m => {
-    if (currentKrajName && m.kraj !== currentKrajName) return false;
-    if (state.filter.okres && m.okres !== state.filter.okres) return false;
-    if (state.filter.type !== 'ALL' && m.type !== state.filter.type) return false;
-    if (state.filter.q && !m.name.toLowerCase().includes(state.filter.q.toLowerCase())) return false;
+function renderGranularTableRows() {
+  const rowsBody = document.getElementById('muni-table-rows');
+  rowsBody.innerHTML = '';
+  
+  const rawTargetKrajName = runtimeState.filters.kraj !== 'ALL' ? REGIONS.find(r => r.id === runtimeState.filters.kraj)?.name : null;
+  const workingSet = MUNICIPALITIES.filter(m => {
+    if (rawTargetKrajName && m.kraj !== rawTargetKrajName) return false;
+    if (runtimeState.filters.okres && m.okres !== runtimeState.filters.okres) return false;
+    if (runtimeState.filters.type !== 'ALL' && m.type !== runtimeState.filters.type) return false;
+    if (runtimeState.filters.q && !m.name.toLowerCase().includes(runtimeState.filters.q.toLowerCase())) return false;
     return true;
   });
-}
 
-function renderTable() {
-  const tbody = $('#muni-tbody');
-  tbody.innerHTML = '';
-  const list = filteredMunicipalities();
-  const visibleList = list.slice(0, 250); // Bezpečnostný limit pre plynulosť DOMu
+  const trunkSubset = workingSet.slice(0, 150); // Performance boundary
   
-  if (visibleList.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-500 italic">Žiadne obce nezodpovedajú filtrom.</td></tr>`;
-    $('#table-count').textContent = `0 z 0 obcí`;
+  if (trunkSubset.length === 0) {
+    rowsBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-600 italic">No operational records fit active tracking matrix.</td></tr>`;
+    document.getElementById('datagrid-counter').textContent = `Showing 0 entries`;
     return;
   }
 
-  visibleList.forEach(m => {
-    const reported = isReported(m);
-    const r = currentMuniResult(m);
-    const w = reported ? winnerOf(r.votes) : null;
-    const party = w ? PARTIES.find(p => p.id === w.party) : null;
-    const tr = document.createElement('tr');
-    tr.dataset.type = m.type;
-    tr.dataset.id = m.id;
-    if (!reported) tr.classList.add('row-pending');
+  trunkSubset.forEach(m => {
+    const isReported = checkMuniReporting(m);
+    const results = retrieveActiveMuniProjection(m);
+    const performancetrip = isReported ? deriveTopPerformance(results.votes) : null;
+    const winningParty = performancetrip ? PARTIES.find(p => p.id === performancetrip.party) : null;
     
-    tbody.appendChild(tr);
-    tr.innerHTML = `
-      <td class="font-medium text-gray-200">${m.name}</td>
-      <td class="muted">${m.okres}</td>
-      <td><span class="pill pill-${m.type}">${m.type === 'urban' ? 'Mesto' : 'Vidiek'}</span></td>
-      <td class="num">${m.registeredVoters.toLocaleString()}</td>
-      <td class="num">${reported ? r.votesCast.toLocaleString() : '—'}</td>
-      <td class="num">${reported ? ((r.votesCast / m.registeredVoters) * 100).toFixed(1) + '%' : '—'}</td>
-      <td>${party ? `<span class="swatch" style="background:${party.color}"></span> ${party.short} <span class="muted font-mono">(+${w.margin.toFixed(1)}%)</span>` : '<span class="muted italic">sčítava sa...</span>'}</td>
+    const visualRow = document.createElement('tr');
+    if (!isReported) visualRow.className = 'pending text-gray-600';
+    
+    visualRow.innerHTML = `
+      <td class="font-medium ${isReported ? 'text-gray-200' : 'text-gray-600'}">${m.name}</td>
+      <td class="text-gray-400">${m.okres}</td>
+      <td><span class="px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-bold ${m.type === 'urban' ? 'bg-blue-900/40 text-blue-400' : 'bg-emerald-900/40 text-emerald-400'}">${m.type}</span></td>
+      <td class="text-right font-mono">${m.registeredVoters.toLocaleString()}</td>
+      <td class="text-right font-mono">${isReported ? results.votesCast.toLocaleString() : '—'}</td>
+      <td class="text-right font-mono">${isReported ? ((results.votesCast / m.registeredVoters) * 100).toFixed(1) + '%' : '—'}</td>
+      <td>${winningParty ? `<span class="inline-block w-2 h-2 rounded-full mr-1.5" style="background:${winningParty.color}"></span>${winningParty.short} <span class="text-gray-500 font-bold text-[11px]">(+${performancetrip.margin.toFixed(1)}%)</span>` : '<span class="text-gray-600 italic">Waiting...</span>'}</td>
     `;
+    rowsBody.appendChild(visualRow);
   });
-  $('#table-count').textContent = `Zobrazených ${visibleList.length} z ${list.length} nájdených obcí`;
+  
+  document.getElementById('datagrid-counter').textContent = `Displaying ${trunkSubset.length} of ${workingSet.length} active logs found.`;
 }
 
-function buildPartyControls() {
-  const host = $('#party-controls');
-  host.innerHTML = '';
+function instantiateSwingControls() {
+  const container = document.getElementById('party-controls-box');
+  container.innerHTML = '';
+  
   PARTIES.forEach(p => {
-    const row = document.createElement('div');
-    row.className = 'party-row bg-slate-900/40 p-2 rounded-lg border border-gray-800/60';
-    row.innerHTML = `
-      <div class="party-row-head">
-        <div><span class="swatch" style="background:${p.color}"></span><span class="party-name text-gray-200">${p.name}</span></div>
-        <output data-party-out="${p.id}" class="font-mono text-xs font-bold text-blue-400">0.0%</output>
+    const elementRow = document.createElement('div');
+    elementRow.className = 'bg-gray-900/60 p-2 rounded border border-gray-800 text-xs font-mono';
+    elementRow.innerHTML = `
+      <div class="flex justify-between items-center mb-1">
+        <div class="truncate mr-1"><span class="inline-block w-2 h-2 rounded-full mr-1.5" style="background:${p.color}"></span><span class="text-gray-300 font-bold">${p.name}</span></div>
+        <output data-output-p="${p.id}" class="text-blue-400 font-bold">0.0%</output>
       </div>
-      <input type="range" min="0" max="50" step="0.2" value="${NATIONAL_BASELINE[p.id]?.toFixed(1) || 0}" data-party="${p.id}">
+      <input type="range" min="0" max="50" step="0.2" value="${CUMULATIVE_NATIONAL_BASE[p.id]?.toFixed(1) || 0}" data-input-p="${p.id}" class="w-full">
     `;
-    host.appendChild(row);
-    row.querySelector('input').addEventListener('input', (e) => {
-      state.partyTargets[p.id] = parseFloat(e.target.value);
-      syncPartyControlsFromState();
-      renderAll();
+    container.appendChild(elementRow);
+    
+    elementRow.querySelector('input').addEventListener('input', (event) => {
+      runtimeState.partyTargets[p.id] = parseFloat(event.target.value);
+      synchronizeSwingSliders();
+      executeUniversalRender();
     });
   });
 }
 
-function syncPartyControlsFromState() {
-  const targets = normalisedTargets();
+function synchronizeSwingSliders() {
+  const calibratedTargets = retrieveProportionalTargets();
   PARTIES.forEach(p => {
-    const input = document.querySelector(`input[data-party="${p.id}"]`);
-    if (input) input.value = state.partyTargets[p.id];
-    const out = document.querySelector(`output[data-party-out="${p.id}"]`);
-    if (out) out.textContent = (targets[p.id] || 0).toFixed(1) + '%';
+    const rangeInput = document.querySelector(`input[data-input-p="${p.id}"]`);
+    if (rangeInput) rangeInput.value = runtimeState.partyTargets[p.id];
+    const numericalOutput = document.querySelector(`output[data-output-p="${p.id}"]`);
+    if (numericalOutput) numericalOutput.textContent = (calibratedTargets[p.id] || 0).toFixed(1) + '%';
   });
 }
 
-function flashType(type) {
-  $$(`tr[data-type="${type}"]`).forEach(tr => {
-    tr.classList.add('flash');
-    setTimeout(() => tr.classList.remove('flash'), 500);
-  });
+function executeUniversalRender() {
+  renderCartogramLayout();
+  renderNationalScoreboard();
+  renderGranularTableRows();
 }
 
 /* =========================================================
-   6. REALTIME RUNTIME ENGINE SIMULATION
+   6. REALTIME PROGRESSION SIMULATOR MATRIX ENGINE
 ========================================================= */
-function buildQueue() {
-  const scored = MUNICIPALITIES.map(m => {
-    let base = Math.random();
-    if (state.sim.order === 'rural-first') base = m.type === 'rural' ? base * 0.5 : base * 0.5 + 0.5;
-    else if (state.sim.order === 'urban-first') base = m.type === 'urban' ? base * 0.5 : base * 0.5 + 0.5;
-    return { id: m.id, score: base };
+function formulateDynamicSequence() {
+  const operationalScoring = MUNICIPALITIES.map(m => {
+    let scalarValue = Math.random();
+    if (runtimeState.engine.profile === 'rural-first') scalarValue = m.type === 'rural' ? scalarValue * 0.4 : scalarValue * 0.4 + 0.6;
+    else if (runtimeState.engine.profile === 'urban-first') scalarValue = m.type === 'urban' ? scalarValue * 0.4 : scalarValue * 0.4 + 0.6;
+    return { id: m.id, weightIndex: scalarValue };
   });
-  scored.sort((a, b) => a.score - b.score);
-  return scored.map(s => s.id);
+  operationalScoring.sort((a, b) => a.weightIndex - b.weightIndex);
+  return operationalScoring.map(s => s.id);
 }
 
-function startSimulation() {
-  stopSimulation(false);
-  state.sim.reported = new Set();
-  state.sim.locked = {};
-  state.sim.queue = buildQueue();
-  state.sim.running = true;
-  state.sim.startedAt = Date.now();
-  state.sim.durationMs = parseInt($('#speed-slider').value, 10) * 1000;
+function deployActiveSimulation() {
+  terminateRunningSimulation(false);
+  runtimeState.engine.tickersCounted = new Set();
+  runtimeState.engine.snapshots = {};
+  runtimeState.engine.queue = formulateDynamicSequence();
+  runtimeState.engine.running = true;
+  runtimeState.engine.speedMs = parseInt(document.getElementById('sim-speed').value, 10) * 1000;
   
-  $('#btn-start').textContent = '⟳ Načítavam...';
-  $('#btn-start').disabled = true;
-  $('#btn-reset').disabled = false;
-  $('#ticker-status').textContent = 'LIVE COUNT';
+  document.getElementById('ctrl-start').textContent = 'COMPUTING...';
+  document.getElementById('ctrl-start').disabled = true;
+  document.getElementById('ctrl-reset').disabled = false;
+  document.getElementById('hud-status').textContent = 'STREAMING LIVE DATA FEED';
 
-  const tickMs = 100;
-  const totalTicks = Math.max(1, Math.round(state.sim.durationMs / tickMs));
-  const perTick = Math.max(1, Math.ceil(state.sim.queue.length / totalTicks));
+  const pulseInterval = 100;
+  const loopTicks = Math.max(1, Math.round(runtimeState.engine.speedMs / pulseInterval));
+  const processingCap = Math.max(1, Math.ceil(runtimeState.engine.queue.length / loopTicks));
 
-  state.sim.timer = setInterval(() => {
-    const deltas = swingDeltas();
-    for (let i = 0; i < perTick && state.sim.queue.length; i++) {
-      const id = state.sim.queue.shift();
-      const m = MUNICIPALITIES.find(x => x.id === id);
-      if (m) {
-        state.sim.locked[id] = computeMuniResult(m, deltas);
-        state.sim.reported.add(id);
+  runtimeState.engine.clock = setInterval(() => {
+    const currentDeltas = calculateSwingDeltas();
+    for (let batchIdx = 0; batchIdx < processingCap && runtimeState.engine.queue.length; batchIdx++) {
+      const targetId = runtimeState.engine.queue.shift();
+      const targetMuniObj = MUNICIPALITIES.find(x => x.id === targetId);
+      if (targetMuniObj) {
+        runtimeState.engine.snapshots[targetId] = computeElectoralLogistics(targetMuniObj, currentDeltas);
+        runtimeState.engine.tickersCounted.add(targetId);
       }
     }
-    renderAll();
-    if (state.sim.queue.length === 0) {
-      finishSimulation();
+    executeUniversalRender();
+    if (runtimeState.engine.queue.length === 0) {
+      finalizeSimulationStream();
     }
-  }, tickMs);
+  }, pulseInterval);
 }
 
-function finishSimulation() {
-  clearInterval(state.sim.timer);
-  state.sim.running = false;
-  $('#btn-start').textContent = '▶ Spustiť znova';
-  $('#btn-start').disabled = false;
-  $('#ticker-status').textContent = 'DEFINITÍVNE';
+function finalizeSimulationStream() {
+  clearInterval(runtimeState.engine.clock);
+  runtimeState.engine.running = false;
+  document.getElementById('ctrl-start').textContent = 'Execute Telemetry';
+  document.getElementById('ctrl-start').disabled = false;
+  document.getElementById('hud-status').textContent = 'TELEMETRY STREAM CONCLUDED / FINAL';
 }
 
-function stopSimulation(reRender = true) {
-  if (state.sim.timer) clearInterval(state.sim.timer);
-  state.sim.timer = null;
-  state.sim.running = false;
-  if (reRender) renderAll();
+function terminateRunningSimulation(shouldRender = true) {
+  if (runtimeState.engine.clock) clearInterval(runtimeState.engine.clock);
+  runtimeState.engine.clock = null;
+  runtimeState.engine.running = false;
+  if (shouldRender) executeUniversalRender();
 }
 
-function resetSimulation() {
-  stopSimulation(false);
-  state.sim.reported = new Set();
-  state.sim.locked = {};
-  $('#btn-start').textContent = '▶ Spustiť sčítavanie';
-  $('#btn-start').disabled = false;
-  $('#ticker-status').textContent = 'READY';
-  renderAll();
-}
-
-function renderAll() {
-  renderMap();
-  renderNational();
-  renderTable();
+function executeSystemHardReset() {
+  terminateRunningSimulation(false);
+  runtimeState.engine.tickersCounted = new Set();
+  runtimeState.engine.snapshots = {};
+  document.getElementById('ctrl-start').textContent = 'Execute Telemetry';
+  document.getElementById('ctrl-start').disabled = false;
+  document.getElementById('hud-status').textContent = 'SYSTEM RESET / ACTIVE';
+  executeUniversalRender();
 }
 
 /* =========================================================
-   7. EVENT WIRES & ATTACHMENTS
+   7. HUD CONTROLS EVENT WIRES
 ========================================================= */
-function wireControls() {
-  $('#turnout-rural').addEventListener('input', (e) => {
-    state.turnout.rural = parseFloat(e.target.value) / 100;
-    $('#turnout-rural-out').textContent = e.target.value + '%';
-    flashType('rural');
-    renderAll();
+function wireDashboardSystemEvents() {
+  document.getElementById('val-turnout-rural').addEventListener('input', (e) => {
+    runtimeState.turnout.rural = parseFloat(e.target.value) / 100;
+    document.getElementById('out-turnout-rural').textContent = e.target.value + '%';
+    executeUniversalRender();
   });
-  $('#turnout-urban').addEventListener('input', (e) => {
-    state.turnout.urban = parseFloat(e.target.value) / 100;
-    $('#turnout-urban-out').textContent = e.target.value + '%';
-    flashType('urban');
-    renderAll();
+  document.getElementById('val-turnout-urban').addEventListener('input', (e) => {
+    runtimeState.turnout.urban = parseFloat(e.target.value) / 100;
+    document.getElementById('out-turnout-urban').textContent = e.target.value + '%';
+    executeUniversalRender();
   });
 
-  $('#btn-random').addEventListener('click', randomizeParties);
-  $('#btn-reset-parties').addEventListener('click', () => {
-    PARTIES.forEach(p => state.partyTargets[p.id] = NATIONAL_BASELINE[p.id]);
-    syncPartyControlsFromState();
-    renderAll();
+  document.getElementById('ctrl-shake').addEventListener('click', () => {
+    PARTIES.forEach(p => {
+      const multiplier = 0.6 + Math.random() * 0.9;
+      runtimeState.partyTargets[p.id] = Math.max(0.2, CUMULATIVE_NATIONAL_BASE[p.id] * multiplier + (Math.random() - 0.5) * 3);
+    });
+    synchronizeSwingSliders();
+    executeUniversalRender();
   });
 
-  $('#btn-start').addEventListener('click', startSimulation);
-  $('#btn-reset').addEventListener('click', resetSimulation);
-  $('#order-select').addEventListener('change', (e) => { state.sim.order = e.target.value; });
-  $('#speed-slider').addEventListener('input', (e) => {
-    $('#speed-out').textContent = e.target.value + 's';
+  document.getElementById('ctrl-clear-swings').addEventListener('click', () => {
+    PARTIES.forEach(p => runtimeState.partyTargets[p.id] = CUMULATIVE_NATIONAL_BASE[p.id]);
+    synchronizeSwingSliders();
+    executeUniversalRender();
   });
 
-  $('#filter-kraj').addEventListener('change', (e) => {
-    state.filter.kraj = e.target.value; state.filter.okres = null; renderTable();
+  document.getElementById('ctrl-start').addEventListener('click', deployActiveSimulation);
+  document.getElementById('ctrl-reset').addEventListener('click', executeSystemHardReset);
+  document.getElementById('sim-order').addEventListener('change', (e) => { runtimeState.engine.profile = e.target.value; });
+  document.getElementById('sim-speed').addEventListener('input', (e) => {
+    document.getElementById('speed-display').textContent = e.target.value + 's';
   });
-  $('#filter-type').addEventListener('change', (e) => { state.filter.type = e.target.value; renderTable(); });
-  $('#filter-q').addEventListener('input', (e) => { state.filter.q = e.target.value; renderTable(); });
-  $('#filter-clear').addEventListener('click', () => {
-    state.filter = { kraj: 'ALL', okres: null, type: 'ALL', q: '' };
-    $('#filter-kraj').value = 'ALL'; $('#filter-type').value = 'ALL'; $('#filter-q').value = '';
-    renderTable();
+
+  document.getElementById('grid-filter-kraj').addEventListener('change', (e) => {
+    runtimeState.filters.kraj = e.target.value; runtimeState.filters.okres = null; renderGranularTableRows();
+  });
+  document.getElementById('grid-filter-type').addEventListener('change', (e) => { runtimeState.filters.type = e.target.value; renderGranularTableRows(); });
+  document.getElementById('grid-filter-search').addEventListener('input', (e) => { runtimeState.filters.q = e.target.value; renderGranularTableRows(); });
+  document.getElementById('grid-filter-reset').addEventListener('click', () => {
+    runtimeState.filters = { kraj: 'ALL', okres: null, type: 'ALL', q: '' };
+    document.getElementById('grid-filter-kraj').value = 'ALL'; 
+    document.getElementById('grid-filter-type').value = 'ALL'; 
+    document.getElementById('grid-filter-search').value = '';
+    renderGranularTableRows();
   });
 }
 
-document.getElementById("fileInput").addEventListener("change", async (e) => {
-  $('#ticker-status').textContent = 'SPRACOVÁVAM...';
-  for (const file of e.target.files) {
-    await loadFile(file);
+document.getElementById("fileLoader").addEventListener("change", async (event) => {
+  document.getElementById('hud-status').textContent = 'INGESTING FILES DISPATCH...';
+  for (const singleFile of event.target.files) {
+    await handleFilePipeline(singleFile);
   }
 });
 
-// Inicializácia pri pripravenom DOMe
+// Structural entry init
 document.addEventListener('DOMContentLoaded', () => {
-  wireControls();
+  wireDashboardSystemEvents();
 });
 </script>
 
